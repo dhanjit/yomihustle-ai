@@ -3,195 +3,361 @@
 Research notes on how to wire Claude (the LLM) up as a player in *Your Only Move
 Is HUSTLE* (YOMI Hustle / YOMIH).
 
+> **v2 update.** Verified specifics from a second-pass deep-research dive are
+> folded in: the engine version, the native physics library, the concrete
+> Match-controller hook, the fighter state schema, the StreamPeerTCP bridge
+> pattern, the Delta-V mod loader workflow, and prior-art mods to crib from.
+> Items still labeled **(inferred)** mean we have a strong pattern guess but no
+> source-level confirmation yet.
+
 ## TL;DR — is this feasible?
 
-**Yes, and the game is unusually well-suited to it.** YOMI Hustle is a
-*turn-based* fighting game built in **Godot 3.x / GDScript** with a mature
-modding ecosystem. Unlike a real-time fighter, the game **pauses at every
-decision point**, so there is no reflex or latency pressure — an LLM has
-effectively unlimited time to "think" between moves. The decision an agent
-makes each turn is small and discrete (pick one move from a menu + a
-directional input), which maps cleanly onto a structured LLM call.
+**Yes, and we now have the concrete hook points.** YOMIH is a turn-based
+fighting game built on **a customized Godot 3.5** with a native fixed-point
+physics library (`tbfg.dll` / `tbfg.so`) and a Delta-V–based mod loader that
+supports runtime script extension (`installScriptExtension`). The game pauses
+at every actionable frame for simultaneous double-blind move selection, so
+there is no reflex/latency pressure on the agent. Each turn's decision is a
+small discrete choice (move + DI/aim vectors), perfect for a structured Claude
+call. The clean path is: a mod extends `Match.gd`, hooks the input phase,
+serializes state to JSON, blocks on a local TCP socket, and the bridge server
+calls Claude.
 
-The recommended path is a **GDScript mod that hooks the move-selection step,
-serializes the game state to JSON, sends it to a small local HTTP bridge, and
-the bridge calls the Claude API and returns the chosen move.** Community
-"AI opponent" mods already prove that a player slot can be driven
-programmatically — we are replacing their hand-written heuristic with Claude.
+Community mods that already drive a player slot programmatically — "AI Opponent
+| Goon", "General AI", "YOMI Random" — confirm the controller-override pattern
+works. "The Hacker" mod (live GDScript injection at runtime) proves direct
+mutation of the `p1`/`p2`/`objects` globals during a match is fine.
 
 ## Why the game is a good fit for an LLM agent
 
-- **Turn-based with simultaneous execution.** The game pauses whenever either
-  player can begin a new move (or after ~10 frames). Both players secretly
-  select a move and "Lock In"; the engine then simulates deterministically
-  until someone can act again.
-- **Deterministic simulation.** Same inputs → same outcome. This makes a
-  built-in **prediction/after-image system** possible (the game shows you how
-  the next turn plays out given chosen moves). That same determinism lets an
-  agent do lookahead/simulation if we expose it.
-- **Decisions are strategic, not mechanical.** "Everything is frame-perfect as
-  you planned it" — the skill is *which* move, not execution speed. That is
-  exactly the kind of choice an LLM can reason about.
-- **No time limit per decision.** We can spend an API round-trip (seconds) per
-  turn without affecting gameplay.
+- **Turn-based with simultaneous lock-in.** At each actionable frame the engine
+  pauses, both players pick a move and "Lock In", then the deterministic sim
+  runs until the next actionable frame.
+- **Deterministic, fixed-point physics.** Same inputs → same outcome across
+  platforms. This is what powers the in-game after-image prediction and what
+  makes external lookahead possible.
+- **Decisions are strategic, not mechanical.** The skill is *which* move, not
+  execution speed — exactly the kind of choice an LLM can reason about.
+- **No per-turn time limit (offline).** API round-trips of a few seconds are
+  fine. (Online netplay is a different story — see Risks.)
 
-## What "a move" actually is (the decision interface)
+## The decision interface, in concrete terms
 
-Each turn the agent must produce roughly:
+Per turn, the agent must produce:
 
-- **A move/action** chosen from the character's currently *available* moves
-  (the buttons shown in the move menu — e.g. jab, dash, special, jump, block,
-  parry, item). Availability depends on the current state (grounded/airborne,
-  hitstun, resources/meter, cooldowns).
-- **A directional input** — movement direction and/or **DI** (directional
-  influence) applied while being hit, plus aim direction for projectile/aimed
-  moves.
-- Occasionally **resource decisions** (meter spend, mod-specific mechanics).
+- **`action_id`** — one entry from the fighter's currently *legal* moves, which
+  are enumerated from the fighter's state-machine children at decision time
+  (availability depends on grounded/airborne, hitstun, meter, air_options,
+  free_cancels, etc.).
+- **`di_vector`** — a `Vector2` for directional influence while being hit /
+  movement direction.
+- **`aim_vector`** — a `Vector2` for aimed moves (projectiles, dashes).
+- Optional resource/extra data for mod-specific mechanics.
 
-So the agent's output per turn is small and enumerable, which is ideal for a
-constrained, schema-validated LLM response.
-
-## Approaches considered
-
-### A. GDScript mod + local API bridge  ← recommended
-Decompile the game, add a mod that overrides the controller for one player
-slot. At each decision point the mod reads structured game state, POSTs it to
-`localhost`, and a small Python/Node bridge calls the Claude API and returns
-the chosen action. **Pros:** full, exact, structured state; no vision noise;
-deterministic; unlimited think time; can also expose the engine's own
-prediction for lookahead. **Cons:** requires decompiling + working in the
-correct Godot version; mod must keep up with game updates.
-
-### B. Vision + OS input injection (external bot)
-Screen-capture the game, feed frames to Claude's vision, and inject
-mouse/keyboard. **Pros:** no decompilation; engine-agnostic. **Cons:** brittle
-OCR/vision of HUD and move menus, fragile coordinate clicking, no exact frame
-data, and it throws away the clean structured interface the mod approach gives
-for free. Only worth it if modding is off the table.
-
-### C. Train an RL agent (not "Claude", but related)
-Wrap the deterministic sim as a gym-style environment and train a policy. This
-is a different project (no LLM, long training), but the same mod-level state
-hooks built for A are the foundation for it. Out of scope for "make *Claude*
-play," but worth noting the state-extraction work is shared.
-
-## Recommended architecture (Approach A) in detail
-
-```
-┌─────────────────────────────┐        HTTP (localhost)        ┌──────────────────────┐
-│  YOMI Hustle (Godot, modded) │  ── game state (JSON) ───────▶ │  Bridge server       │
-│                             │                                │  (Python / Node)     │
-│  ClaudeController (GDScript)│ ◀── chosen action (JSON) ────  │  - builds prompt     │
-│   - hooks P2 move-selection │                                │  - calls Claude API  │
-│   - serializes state        │                                │  - validates output  │
-│   - applies returned action │                                └──────────┬───────────┘
-└─────────────────────────────┘                                           │ Anthropic API
-                                                                          ▼
-                                                                   Claude (Opus/Sonnet)
-```
-
-**1. Get a moddable build.** Decompile the shipped `.pck` with **GDRE Tools**
-(Godot RE Tools) → "Recover Project", open in the *exact* Godot version GDRE
-reports (3.x). Optionally install **YHMod Assistant** (Godot plugin: templates +
-auto-export on debug run) and use the **Godot Mod Loader** (the game uses a
-Delta-V–based loader) so the mod loads as a Steam Workshop-style add-on rather
-than a hard fork.
-
-**2. Hook a player slot.** Replace/extend the controller for one player with a
-`ClaudeController`. Reference existing "AI Opponent" workshop mods for exactly
-where the move-selection hook lives — they already select a move and apply DI
-for P2; we swap their heuristic for a call to the bridge.
-
-**3. Serialize state to JSON.** At each pause, emit something like:
+Concretely:
 
 ```json
 {
-  "frame": 1420,
-  "stage": { "width": 1920, "left_wall": -960, "right_wall": 960 },
-  "self":     { "char": "Wizard", "pos": [120, 0], "vel": [0, 0],
-                "hp": 540, "state": "idle", "grounded": true, "meter": 2,
-                "available_moves": ["jab","dash","fireball","jump","block","parry"] },
-  "opponent": { "char": "Samurai", "pos": [430, 0], "vel": [-30, 0],
-                "hp": 610, "state": "dash_attack_startup", "frames_until_active": 3,
-                "grounded": true, "distance": 310 },
-  "last_turn": { "self_move": "block", "opp_move": "dash_attack" }
+  "action_id": "HorizontalSlash",
+  "modifiers": {
+    "di_vector":  {"x": 0.707, "y": -0.707},
+    "aim_vector": {"x": 120.4, "y": -34.8},
+    "extra_data": {}
+  }
 }
 ```
 
-**4. Bridge calls Claude.** The bridge sends the state + the game rules + the
-*current* `available_moves` and asks Claude to return a single JSON action. Use
-**tool use / structured output** so Claude must return a valid choice; reject &
-retry if the move isn't in `available_moves`.
+The exact shape of the input payload to the controller is **(inferred)** —
+function name / dict keys come from standard Godot-3.x controller patterns and
+will be locked once we inspect the decompiled `FighterController.gd`.
 
-```json
-{ "move": "parry", "direction": "toward_opponent", "aim": null,
-  "reasoning": "they committed to dash_attack, 3f until active — parry beats it" }
+## Approaches considered
+
+### A. GDScript mod + local TCP bridge  ← recommended
+Decompile the game with GDRE Tools, open in Godot 3.5, write a mod that uses
+`installScriptExtension` to hook `Match.gd`'s input phase. At each decision
+point the mod serializes state to JSON, opens a length-prefixed `StreamPeerTCP`
+to `localhost`, blocks until the bridge returns a chosen action, and applies it
+via the fighter's controller. The bridge (Python/Node) builds the prompt and
+calls Claude. **Verified path.**
+
+### B. Vision + OS input injection (external bot)
+Screen-capture frames, OCR the HUD/move menu, drive mouse/keyboard. **Pros:**
+no decompilation. **Cons:** brittle, no exact frame data, no clean access to
+the legal-moves list. Only worth it if modding is off the table — it isn't.
+
+### C. Train an RL agent (separate project)
+Wrap the deterministic sim as a gym env and train a policy. Not "Claude," but
+the same mod-level state hooks are the foundation. Out of scope here.
+
+## Recommended architecture (Approach A) — verified specifics
+
+```
+┌────────────────────────────────────────┐   length-prefixed JSON over TCP   ┌──────────────────────┐
+│  YOMI Hustle (Godot 3.5, modded)        │  ── game state ──────────────▶ │  Bridge server       │
+│                                        │                                  │  (Python / Node)     │
+│  Mod (Delta-V loader)                  │ ◀── chosen action ───────────── │  - builds prompt     │
+│   - installScriptExtension Match.gd    │                                  │  - calls Claude API  │
+│   - serializes p1 / p2 / objects        │                                  │  - validates output  │
+│   - StreamPeerTCP blocking I/O          │                                  └──────────┬───────────┘
+└────────────────────────────────────────┘                                              │ Anthropic API
+                                                                                        ▼
+                                                                                 Claude (Opus/Sonnet)
 ```
 
-**5. Apply the action.** The GDScript controller maps the returned `move` to the
-in-engine button/state and locks in. Done — loop to next turn.
+### Files & globals to know
 
-### Optional: give Claude lookahead
-Because the sim is deterministic, the mod can expose the engine's existing
-**prediction** ("if I do X and they do Y, here's the resulting state"). Letting
-Claude request a few hypotheticals before committing turns it from a reactive
-picker into a shallow game-tree reasoner — a big strength boost for little cost.
+- `res://Match.gd` (a.k.a. `CurrentGame.gd`) — high-level match coordinator;
+  manages frame resolution and the input phase. **Our hook target.**
+- `res://Fighter.gd` — node for a physical fighter on the stage. Globals
+  `p1` / `p2` reference the two fighters; `objects` references active
+  projectiles.
+- `res://FighterController.gd` (or `PlayerController.gd`) — abstracts how
+  selections map to a fighter; this is what existing AI-opponent mods replace
+  per slot.
+
+### Hook (Delta-V script extension)
+
+```gdscript
+# res://ExternalBridgeMod/ModMain.gd
+extends Node
+func _init(modLoader = ModLoader):
+    modLoader.installScriptExtension("res://ExternalBridgeMod/extensions/Match.gd")
+```
+
+```gdscript
+# res://ExternalBridgeMod/extensions/Match.gd
+extends "res://Match.gd"
+
+func start_input_phase():
+    .start_input_phase()  # let UI + physics update normally
+    if is_instance_valid(p2) and p2.controller is ExternalController:
+        var state_json = StateSerializer.get_serialized_state(p1, p2, objects)
+        var action     = TCPBridge.query_external_agent(state_json)
+        p2.controller.submit_action(action.action_id, action.modifiers)
+```
+
+Function names `start_input_phase` and `submit_action` are **(inferred)** —
+we'll confirm against the decompiled source. The extension *pattern* and the
+`installScriptExtension` API are verified Delta-V loader behavior.
+
+### Fighter state schema (verified field names)
+
+| Field                | Access                                  | Notes                                |
+|----------------------|------------------------------------------|--------------------------------------|
+| Position             | `fighter.get_pos()` → `Vector2`          | absolute stage coords                |
+| Velocity             | `fighter.vel`                            |                                      |
+| Health               | `fighter.hp`                             | typically out of 10000               |
+| Current state        | `fighter.current_state.name`             | active animation / state name        |
+| Hitstun              | `fighter.hitstun`                        | frames until actionable              |
+| Grounded             | `fighter.is_grounded()`                  | bool                                 |
+| Facing               | `fighter.facing`                         | `1` right, `-1` left                 |
+| Super meter          | `fighter.super_meter`                    | pips                                 |
+| Air options          | `fighter.air_options`                    | jumps + air-dashes left              |
+| Free cancels         | `fighter.free_cancels`                   | cancel-into-safe budget              |
+| Burst meter          | `fighter.burst_meter`                    | defensive burst                      |
+| Legal moves          | iterate `fighter.states.get_children()`  | filter by usability (**inferred**)   |
+
+Projectiles come from the global `objects` array; iterate and emit each one's
+id + position (and ideally velocity / owner / hitbox if exposed).
+
+### State serializer
+
+```gdscript
+# res://ExternalBridgeMod/StateSerializer.gd
+extends Node
+static func get_serialized_state(p1, p2, objects) -> String:
+    var state = {
+        "p1": _fighter(p1),
+        "p2": _fighter(p2),
+        "projectiles": []
+    }
+    for obj in objects:
+        if is_instance_valid(obj):
+            state.projectiles.append({"id": obj.name,
+                                      "pos": [obj.get_pos().x, obj.get_pos().y]})
+    return JSON.print(state)
+
+static func _fighter(f) -> Dictionary:
+    var legal := []
+    for st in f.states.get_children():           # (inferred loop shape)
+        if st.is_usable_in_current_state(f):
+            legal.append({"action_id": st.name,
+                          "has_aim":  st.has_method("get_aim_vector"),
+                          "has_di":   st.has_method("get_di_vector")})
+    return {
+        "hp":           f.hp,
+        "pos":         [f.get_pos().x, f.get_pos().y],
+        "vel":         [f.vel.x, f.vel.y],
+        "state_name":   f.current_state.name if f.current_state else "None",
+        "hitstun":      f.hitstun,
+        "is_grounded":  f.is_grounded(),
+        "facing":       f.facing,
+        "air_options":  f.air_options,
+        "free_cancels": f.free_cancels,
+        "super_meter":  f.super_meter,
+        "legal_moves":  legal
+    }
+```
+
+### TCP bridge (length-prefixed, blocking with cooperative yield)
+
+`HTTPRequest` is async in Godot 3.5; forcing it synchronous via `yield` risks
+desyncs and timeouts. The clean pattern is a length-prefixed `StreamPeerTCP`
+loop that blocks the main thread with short `OS.delay_msec()` sleeps so the
+window manager doesn't mark the app "not responding".
+
+```gdscript
+# res://ExternalBridgeMod/TCPBridge.gd
+extends Node
+const HOST = "127.0.0.1"
+const PORT = 42421
+var peer := StreamPeerTCP.new()
+
+func query_external_agent(payload: String) -> Dictionary:
+    if peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+        if peer.connect_to_host(HOST, PORT) != OK:
+            return {"action_id": "Wait", "modifiers": {}}
+
+    var bytes := payload.to_utf8()
+    peer.put_32(bytes.size())
+    peer.put_data(bytes)
+
+    while peer.get_available_bytes() < 4:
+        OS.delay_msec(5)
+    var resp_size := peer.get_32()
+
+    while peer.get_available_bytes() < resp_size:
+        OS.delay_msec(5)
+    var ok_and_packet = peer.get_data(resp_size)
+    if ok_and_packet[0] != OK:
+        return {"action_id": "Wait", "modifiers": {}}
+
+    var parsed = JSON.parse(ok_and_packet[1].get_string_from_utf8())
+    if parsed.error != OK:
+        return {"action_id": "Wait", "modifiers": {}}
+    return parsed.result
+```
+
+### Optional: lookahead via deterministic sim
+Because physics is deterministic and fixed-point, snapshot → inject hypothetical
+moves → step N frames → score → restore is the right shape. The exact entry
+points on the native `tbfg` library (save_state / step / restore) are
+**unverified** — they live in the compiled DLL/SO and need binary RE or a
+GDScript wrapper hint from existing AI mods. AxNoodle's AI work is reported to
+use this pattern; we should read whatever they ship.
+
+Note: GDScript is single-threaded in 3.5 — large lookahead sweeps will hitch
+the client. Keep depth shallow or push search to the bridge process.
+
+## Mod packaging (Delta-V loader)
+
+Zip layout — no files at the root, everything in a mod-named folder:
+
+```
+ExternalBridgeMod.zip
+└── ExternalBridgeMod/
+    ├── ModMain.gd
+    ├── _metadata
+    └── extensions/
+        └── Match.gd
+```
+
+`_metadata` (no extension) fields: `name`, `friendly_name`, `description`,
+`author`, `version`, `id`, `requires`, `overwrites`, `client_side`, `priority`.
+Two init phases: `_init` (register `installScriptExtension` here, before
+autoloads), `_ready` (autoloads/singletons available).
+
+## Toolchain & gotchas
+
+The setup pipeline is finicky in one specific way — the native fixed-point
+physics library must be copied into the recovered project or it crashes on
+match start.
+
+1. Find `YourOnlyMoveIsHUSTLE.pck` in the Steam install (AppID 2212330).
+2. Decompile with **GDRE Tools** (v0.4+).
+3. Open the recovered project in **Godot 3.5 stable** (the customized engine
+   build YOMIH ships with — not Godot 4.x, which corrupts the project).
+4. Create `lib/` in the project root.
+5. Copy `tbfg.dll` (Windows) or `tbfg.so` (Linux) from the Steam folder into
+   `lib/`. Without this the GDNative import fails and matches crash on start.
+6. Optionally install **YH Mod Assistant** for templates + auto-export.
 
 ## Designing the Claude agent
 
-- **System prompt:** explain YOMI Hustle rules, the meaning of each state field,
-  frame-data basics (startup/active/recovery, hitstun, DI, neutral/okizeme),
-  and the win condition. Keep it stable to maximize prompt caching.
-- **Per-turn user message:** the JSON state + the enumerated legal moves.
-- **Structured output:** require `{move, direction, aim, reasoning}`; validate
-  `move ∈ available_moves` server-side.
-- **Memory:** include the last N turns (what each side did + outcomes) so Claude
-  can "read" the opponent — the game is explicitly about reading habits.
-- **Model choice:** Opus for strongest play; Sonnet/Haiku if you want faster,
-  cheaper turns. Cache the rules system prompt across turns.
+- **System prompt (cached):** YOMIH rules, the meaning of each state field,
+  frame-data basics (startup/active/recovery, hitstun, DI), the win condition.
+- **Per-turn user message:** the JSON state + the *current* `legal_moves`.
+- **Structured output:** `{action_id, di_vector, aim_vector, reasoning}`;
+  server-side validate `action_id ∈ legal_moves` and reject/retry otherwise.
+- **Memory:** last N turns (both players' moves + deltas) — the game is
+  explicitly about reading opponent habits.
+- **Model:** Opus for strongest play; Sonnet/Haiku for cheaper/faster matches.
+  Heavy prompt caching on the rules system prompt.
+
+### Frame-data quick reference
+
+- **Advantage** = `defender_hitstun − attacker_recovery` (positive = attacker
+  acts first → punish window).
+- **DI**: `V_final = V_knockback + D_DI * γ`, where `γ` scales with combo
+  length and `D_DI` is the player's normalized 2D input.
 
 ## Implementation roadmap
 
-1. **Spike (state dump).** Decompile, get the game running from source in Godot,
-   and log the move-selection hook + a JSON state dump to console each turn.
-2. **Random/echo bridge.** Stand up the local HTTP bridge returning a *random
-   legal move*; confirm the full loop (state out → action in → applied) works
-   end-to-end against the in-game CPU or a human.
-3. **Claude in the loop.** Swap random for a Claude API call with structured
-   output + validation/retry. Play a full match.
-4. **Memory + reasoning.** Add rolling turn history and the rules system prompt;
-   measure win-rate vs. the built-in/heuristic AI.
-5. **Lookahead (optional).** Expose deterministic prediction so Claude can probe
-   hypotheticals before locking in.
-6. **Polish.** Config for which slot Claude controls, model selection, logging
-   of state/decision/outcome for debugging and eval.
+1. **Decompile + run from source.** Verify Godot 3.5, `tbfg` lib copied, vanilla
+   match launches cleanly from the editor.
+2. **State-dump spike.** Hook `Match.gd`'s input phase; log the JSON state to
+   console each turn. Confirm field names match reality, lock down inferred
+   ones.
+3. **Random/echo bridge.** Stand up a local Python TCP server that returns a
+   random legal action. Run a full match.
+4. **Claude in the loop.** Replace random with a Claude call (structured output
+   + server-side legality check). Play a match end-to-end.
+5. **Memory + reasoning.** Add rolling turn history and the cached rules system
+   prompt; measure win-rate vs. built-in/heuristic AI.
+6. **Lookahead (optional).** Either via the native sim (if the `tbfg` API can
+   be reached) or a lightweight bridge-side heuristic search.
+7. **Polish.** Slot/character config, model selection, logging of
+   state/decision/outcome for eval.
 
-## Challenges & risks
+## Risks & remaining unknowns
 
-- **Decompilation + Godot version match** is the main setup hurdle; use the
-  version GDRE reports exactly.
-- **Game updates** can shift internal class/field names — the mod's state hook
-  may need maintenance. Pin to a game build during development.
-- **Action-space correctness:** the menu of legal moves is state-dependent;
-  always drive Claude's choices from the engine's *actual* `available_moves`,
-  never a hardcoded list, and validate before applying.
-- **Cost/latency:** one API call per decision point; a match has many turns.
-  Caching the rules prompt and using a cheaper model for trivial states helps.
-- **Determinism for online play:** if used against the netcode, an external
-  bridge introduces a non-deterministic actor — keep Claude play to
-  local/practice matches to avoid desyncs.
-- **Legitimacy:** this is for local/practice/research, not for cheating in
-  ranked online lobbies.
+- **Online netplay desync (unverified).** Blocking the main thread on a local
+  socket is fine for local/practice matches; the rollback engine for online may
+  not tolerate it. Keep Claude play to local matches until tested.
+- **Game updates churn.** `YourOnlyMoveIsHUSTLE.pck` and `tbfg` change with
+  patches; class layouts/fields can shift. Pin to a build during development;
+  expect maintenance.
+- **Native `tbfg` library exports (unverified).** Programmatic
+  save/load/step-state functions for lookahead aren't documented; need binary
+  RE or borrowed code from AxNoodle's AI mods.
+- **Controller `submit_action` shape (inferred).** Exact function name and
+  modifier dict keys come from standard Godot patterns; confirm against
+  decompiled `FighterController.gd`.
+- **Legal-moves enumeration (inferred).** The `states.get_children()` + usability
+  filter is a pattern guess; the actual API is in `Fighter.gd`.
+- **Stage / projectile / hazard queries (inferred).** Walls, projectile
+  hitboxes, Mutant's bubbles etc. live in `Stage.gd` and per-projectile scripts;
+  unverified.
+- **GDScript single-thread.** Big lookahead sweeps in the mod will hitch the
+  game. Push search to the bridge.
+- **Legitimacy.** Local/practice/research only — not for ranked online.
 
-## Prior art to study before building
+## Prior art to study / reuse
 
-- **Community "AI Opponent" / "Goon" mods** (Steam Workshop) — show exactly how
-  a player slot is driven programmatically; the cleanest template for our hook.
-- **A "learning AI" mod** (~late 2025) that adapts to your habits — useful for
-  ideas on opponent-modeling and what state is worth tracking.
-- **YHMod Assistant** + **Godot Mod Loader** + the Steam **YomiHustle Modding
-  Tutorial Series** — the standard toolchain/workflow for building and loading
-  the mod.
+- **AI Opponent | Goon, "General AI"** (AxNoodle, Steam Workshop) — the
+  controller-override template; closest match for our hook.
+- **YOMI Random** (Steam Workshop) — shows querying the legal-actions list and
+  programmatically calling the lock-in handler from the move-selection UI.
+- **The Hacker** (Steam Workshop) — live GDScript injection at runtime with
+  clean `p1` / `p2` / `objects` access; perfect for spike experiments before
+  packaging a real mod.
+- **Replay+ / YOMIRecord** (Snazzah) — hook the frame-processing loop and
+  serialize timeline actions; useful for state-capture patterns.
+- **MultiHustle** (uGuardian) — parses simultaneous inputs and drives multiple
+  players programmatically.
+- **YH Mod Assistant** + **Godot Mod Loader** + the Steam **YomiHustle Modding
+  Tutorial Series** — standard toolchain/workflow.
 
 ## Sources
 

@@ -1,0 +1,15 @@
+{
+  "author": "Dhanjit Das",
+  "client_side": true,
+  "description": "Claude plays HUSTLE: TCP bridge between the game and a local Python server that calls the Claude API. Requires the Python bridge (python/bridge.py from the repo) to be running; falls back to the built-in heuristic AI when the bridge is offline.",
+  "friendly_name": "Claude Plays HUSTLE",
+  "id": "<overwritten by ModLoader at load — do not rely on>",
+  "link": "https://github.com/dhanjit/yomihustle-ai",
+  "name": "claude_yomih",
+  "overwrites": false,
+  "priority": 100000,
+  "requires": [
+    ""
+  ],
+  "version": "0.1.0"
+}

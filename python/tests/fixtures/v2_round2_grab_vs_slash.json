@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "match_id": "fixture-v2-0001",
+  "round_number": 2,
+  "round_score_self": 1,
+  "round_score_opponent": 0,
+  "tick": 2210,
+  "mode": "v2_round2",
+  "state": {
+    "self": {
+      "id": 2, "character_name": "Cowboy", "hp": 660, "max_hp": 1500,
+      "super_meter": 101, "max_super_meter": 125, "feints": 0, "penalty": 0,
+      "in_hitstun": false, "di_scaling": "6.0"
+    },
+    "opponent": {
+      "id": 1, "character_name": "Ninja", "hp": 420, "max_hp": 1500,
+      "super_meter": 88, "max_super_meter": 125, "feints": 1, "penalty": 0,
+      "in_hitstun": false, "di_scaling": "1.0"
+    },
+    "game": {
+      "current_tick": 2210, "time_left": 1100, "stage_width": 600,
+      "super_active": false, "distance": 36, "distance_x": 36, "distance_y": 0
+    }
+  },
+  "candidates_evaluated": [
+    {"action_name": "Grab", "data_index": 0,
+     "predicted_self_hp_delta": 0, "predicted_opponent_hp_delta": -80,
+     "predicted_frame_advantage": 14, "predicted_distance_closed": 60,
+     "predicted_self_super_delta": 0},
+    {"action_name": "ParryHigh", "data_index": 0,
+     "predicted_self_hp_delta": 0, "predicted_opponent_hp_delta": 0,
+     "predicted_frame_advantage": 7, "predicted_distance_closed": -8,
+     "predicted_self_super_delta": 0},
+    {"action_name": "HorizontalSlash", "data_index": 0,
+     "predicted_self_hp_delta": -100, "predicted_opponent_hp_delta": 0,
+     "predicted_frame_advantage": -12, "predicted_distance_closed": 30,
+     "predicted_self_super_delta": 0}
+  ],
+  "predicted_opponent_assumed": {"action_name": "Continue", "data": null}
+}

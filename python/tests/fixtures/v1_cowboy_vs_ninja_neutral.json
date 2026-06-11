@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "match_id": "fixture-v1-0001",
+  "round_number": 1,
+  "round_score_self": 0,
+  "round_score_opponent": 0,
+  "tick": 1473,
+  "mode": "v1",
+  "state": {
+    "self": {
+      "id": 2, "character_name": "Cowboy", "hp": 1180, "max_hp": 1500,
+      "super_meter": 42, "max_super_meter": 125, "feints": 1, "penalty": 5,
+      "in_hitstun": false, "combo_proration": 1.0, "di_scaling": "6.0",
+      "current_state": "Idle", "state_interruptable": true
+    },
+    "opponent": {
+      "id": 1, "character_name": "Ninja", "hp": 1340, "max_hp": 1500,
+      "super_meter": 18, "max_super_meter": 125, "feints": 1, "penalty": 0,
+      "in_hitstun": false, "di_scaling": "1.0",
+      "current_state": "Idle", "state_interruptable": true
+    },
+    "game": {
+      "current_tick": 1473, "time_left": 2940, "stage_width": 600,
+      "super_active": false, "distance": 114, "distance_x": 114, "distance_y": 0
+    }
+  },
+  "predicted_opponent": {
+    "action_name": "Continue", "data": null,
+    "eval_score": 42.7, "source": "heuristic_get_best_move"
+  },
+  "legal_moves": [
+    {"action_name": "HorizontalSlash", "title": "Horizontal Slash",
+     "action_type": "Attack", "earliest_hitbox": 6, "is_guard_break": false,
+     "data_options": [{}]},
+    {"action_name": "Grab", "title": "Grab", "action_type": "Special",
+     "earliest_hitbox": 4, "is_guard_break": true,
+     "data_options": [
+       {"Dash": true, "Direction": {"x": 1, "y": 0}, "Jump": false},
+       {"Dash": true, "Direction": {"x": -1, "y": 0}, "Jump": false},
+       {"Dash": false, "Direction": {"x": 1, "y": 0}, "Jump": false},
+       {"Dash": false, "Direction": {"x": -1, "y": 0}, "Jump": false}
+     ]},
+    {"action_name": "ParryHigh", "title": "Parry", "action_type": "Defense",
+     "earliest_hitbox": null, "is_guard_break": false,
+     "data_options": [{"Block Height": {"y": 0}, "Melee Parry Timing": {"count": 4}}]},
+    {"action_name": "Continue", "action_type": "Movement"}
+  ],
+  "recent_history": [],
+  "character_info": {}
+}

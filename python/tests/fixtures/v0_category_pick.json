@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "match_id": "fixture-v0-0001",
+  "round_number": 1,
+  "round_score_self": 0,
+  "round_score_opponent": 0,
+  "tick": 312,
+  "mode": "v0",
+  "state": {
+    "self": {
+      "id": 1, "character_name": "Wizard", "hp": 900, "max_hp": 1200,
+      "super_meter": 75, "max_super_meter": 125, "feints": 0, "penalty": 0,
+      "in_hitstun": false, "di_scaling": "1.0"
+    },
+    "opponent": {
+      "id": 2, "character_name": "Robot", "hp": 1500, "max_hp": 1500,
+      "super_meter": 5, "max_super_meter": 125, "feints": 2, "penalty": 10,
+      "in_hitstun": false, "di_scaling": "6.0"
+    },
+    "game": {
+      "current_tick": 312, "time_left": 5400, "stage_width": 600,
+      "super_active": false, "distance": 240, "distance_x": 238, "distance_y": 30
+    }
+  },
+  "predicted_opponent": {
+    "action_name": "DashForward", "data": {"Direction": {"x": -1, "y": 0}},
+    "eval_score": 18.2, "source": "heuristic_get_best_move"
+  },
+  "visible_categories": ["Movement", "Attack", "Defense"],
+  "recent_history": [],
+  "character_info": {}
+}

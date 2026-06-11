@@ -37,7 +37,7 @@ assumes them. Verdicts are split into **Confirmed**, **Corrected**, and
 | Scoring weights: FRAME_ADVANTAGE_MODIFIER=20, DAMAGE_MODIFIER=1, DISTANCE_MODIFIER=0.1, SUPER_MODIFIER=-0.5 | ✅ Confirmed | All four match exactly |
 | State-specific modifiers — Burst / DefensiveBurst / OffensiveBurst penalize negative @ -999999; InstantCancel / WhiffInstantCancel zeroed | ✅ Confirmed | `state_specific_modifiers` dict matches |
 | Hard difficulty does one extra opponent-then-self prediction step | ✅ Confirmed | `if difficulty == 3 and target_player.opponent.combo_count <= 0:` branch |
-| Frame-advantage gets halved when `distance_closed < 50` | ✅ Confirmed | `frame_advantage_modifier /= 10` (note: **10**, not 2 as "halved" suggests — RESEARCH.md hedged this, source is divide-by-ten) |
+| Frame-advantage gets halved when `distance_closed < 50` | ⚠️ Confirmed-but-dead-code | `frame_advantage_modifier /= 10` exists in source (note: **10**, not 2 as "halved" suggests). **But see Corrected #7 below** — the local var that gets divided is never read; the eval uses the uppercase export `FRAME_ADVANTAGE_MODIFIER` instead. The line runs but has no effect on score. |
 
 ### The ModLoader system
 
@@ -63,6 +63,25 @@ assumes them. Verdicts are split into **Confirmed**, **Corrected**, and
 | All 8 autoloads (Global, SteamHustle, ReplayManager, Network, ModLoader, SteamLobby, Custom, ModOverride) | ✅ Confirmed | `project.godot::[autoload]` |
 | `MAX_HEALTH = 1500` (correcting v1's "10000") | ✅ Confirmed | `characters/BaseChar.gd::var MAX_HEALTH = 1500` |
 | `Server.py` UDP hole-punch (Twisted) | ✅ Confirmed | Exists at repo root, uses `DatagramProtocol` |
+
+### State tag enums and per-character constants (newly verified by audit)
+
+| Claim | Status | Evidence |
+|---|---|---|
+| `ActionType` enum order: `{Movement=0, Attack=1, Special=2, Super=3, Defense=4, Hurt=5}` | ✅ Confirmed | `characters/states/CharState.gd`. AIController filters with `button.state.type != 0` to exclude Movement-typed buttons from the candidate set. |
+| `AirType` enum: `{Grounded, Aerial, Both}` | ✅ Confirmed | `characters/states/CharState.gd` |
+| `BusyInterrupt` enum: `{Normal, Hurt, None}` — third state-tag enum, not previously documented | ✅ Confirmed | `characters/states/CharState.gd` |
+| `MAX_SUPER_METER = 125` AND `MAX_SUPERS = 9` (distinct concepts the research collapsed into a single super-meter cap) | ✅ Confirmed | `characters/BaseChar.gd` |
+| `MIN_PENALTY = -20`, `MAX_PENALTY = 75`, `PENALTY_MIN_DISPLAY = 50` | ✅ Confirmed | `characters/BaseChar.gd` |
+| `iasa_at`, `iasa_on_hit`, `iasa_on_hit_on_block`, `interrupt_frames` fields on `CharState` | ✅ Confirmed | `characters/states/CharState.gd` |
+| Full `can_interrupt()` body | ✅ Confirmed | Returns true when: `current_tick == iasa_at  or  current_tick in interrupt_frames  or  current_tick == anim_length - 1  or  ((hit_fighter or hit_hit_cancellable_projectile) and current_tick == iasa_on_hit)  or  (was_blocked and iasa_on_hit_on_block and current_tick == iasa_on_hit)`. Five-way disjunction, not the 2-3 cases the research implied. |
+| `combo_count`, `combo_damage`, `combo_proration` fields in `BaseChar.state_variables` | ✅ Confirmed | `characters/BaseChar.gd::state_variables` dict |
+| `min_di_scaling = "1.0"`, `max_di_scaling = "6.0"` stored as **fixed-point strings** (not floats) | ✅ Confirmed | `BaseChar.gd`. Both processed via `fixed.mul`. **Matters when the bridge serializes state for Claude — must JSON-encode as strings, not unquoted numbers, or downstream fixed-point math will break on the round-trip back into the sim.** |
+| `block_hitbox(hitbox, force_parry, force_block, ignore_guard_break, autoblock_armor)` 5-arg signature on `BaseChar` | ✅ Confirmed | `characters/BaseChar.gd::block_hitbox` |
+| `can_feint()` on `CharState` returns true when `(has_hitboxes or force_feintable) and (host.feints > 0 or host.get_total_super_meter() >= host.MAX_SUPER_METER)` | ✅ Confirmed | `characters/states/CharState.gd::can_feint`. **Full super meter substitutes for a feint charge** — the research treated feints as a strict resource counter; it's actually meter-fallback-enabled. |
+| `state_specific_modifiers` in `AIController.gd` has **6 keys**: `WhiffInstantCancel`, `InstantCancel`, `Roll` (all `{*, 0.5}`), plus `Burst`, `DefensiveBurst`, `OffensiveBurst` (each with BOTH a `{*, 0}` positive branch AND `{+, -999999}` negative branch). The Burst-class entries make burst moves never picked even when their positive eval looks attractive. | ✅ Confirmed | `AIController.gd` top-of-file `state_specific_modifiers` dict. The original VALIDATION row missed `Roll` and didn't note the dual-branch structure for Burst-class. |
+| Hard difficulty extra prediction step is gated by `opponent.combo_count <= 0`: `if difficulty == 3 and target_player.opponent.combo_count <= 0` | ✅ Confirmed | `AIController.gd::make_move`. **During opponent combos, Hard difficulty reverts to standard depth** — the extra opponent-then-self ply only runs when the opponent is NOT mid-combo. |
+| `queued_extra` feint field is guarded by feint-charge count: `"feint": choice.feint if target_player.feints > 0 else false` | ✅ Confirmed | `AIController.gd::make_move`. Forced false when no feint charges remain, regardless of what the candidate chose. (Note this is the simpler `feints > 0` guard, not the meter-fallback version — the `can_feint()` substitution doesn't propagate up to here.) |
 
 ---
 
@@ -90,11 +109,15 @@ code**. We do NOT need to copy these out of the Steam install (RESEARCH.md
 §A.5 step 6 / §A.6 row "tbfg / native-lib import errors"). They're already
 there.
 
-**Caveat:** the macOS `.dylib` is missing from `lib/`. The `.DS_Store`
-suggests the project was checked in from a Mac that didn't commit the
-`.dylib`. Mac users will need to build `tbfg` from source or grab it from
-the Mac Steam install. **No Linux/Mac builds shipped in the GitHub repo
-other than `tbfg.so`** — fine for Windows + Linux dev.
+**Caveat:** no `.dylib` shipped in `lib/`. The `.DS_Store` suggests the
+project was checked in from a Mac, but the macOS binary isn't in the tree.
+**Before cloning-and-running**, verify whether the committed `tbfg.dll` and
+`tbfg.so` are real binaries or just LFS pointers / symlinks — file sizes
+of 1.2 MB and 5.1 MB are *consistent* with real binaries but the GitHub
+file listing alone doesn't prove it. **No Linux/Mac builds shipped in the
+GitHub repo other than `tbfg.so`** — fine for Windows + Linux dev. (The
+macOS `.dylib` intent — forgotten? Steam-only? — is moved to the open
+questions list below.)
 
 ### 2. Mods load from the EXECUTABLE directory, not `user://mods/`
 
@@ -113,7 +136,7 @@ Workshop subscriptions. When developing in the editor, this resolves to
 which is awkward. Easier dev path is to add your dev mod as a folder in the
 project tree (no zip) and load it directly via a debug autoload.
 
-### 3. Mods CANNOT extend `res://Network.gd`
+### 3. Mods CANNOT extend `res://Network.gd` (but CAN extend `res://cl_port/Network.gd`)
 
 A security check the research missed entirely:
 
@@ -125,11 +148,21 @@ else:
     print("You can't access network!")
 ```
 
-Any mod that tries to extend `res://Network.gd` is silently rejected (only
-ModHashCheck is allowed). **Implication for us:** if the Claude bridge ever
-needs to inspect or influence multiplayer state, it has to do it indirectly
-(e.g., extend the AI controller, not Network.gd). Aligns with the
-local-only stance we already adopted, but worth pinning down.
+Any mod that tries to extend `res://Network.gd` is **logged and skipped**
+(ModLoader prints `"You can't access network!"` — not silently rejected as
+earlier wording implied; only ModHashCheck is whitelisted).
+
+**Important caveat the original audit row missed:** the check only blocks
+`res://Network.gd`. The *actual* autoload is `res://cl_port/Network.gd`,
+which itself `extends "res://Network.gd"`. A mod extending
+`cl_port/Network.gd` is NOT blocked by this check and would inherit the
+full Network API (including everything in the base). So the security
+boundary is narrower than the print statement suggests.
+
+**Implication for us:** if the Claude bridge ever needs to inspect or
+influence multiplayer state, it has to do it indirectly — but the door is
+NOT fully closed at the cl_port layer. Aligns with the local-only stance
+we already adopted, but worth pinning down.
 
 ### 4. The Mutant character lives in `characters/mutant/`, not "`alien/+mutant/`"
 
@@ -142,7 +175,13 @@ RESEARCH.md §C.1 lists Mutant's folder as "`alien/`+`mutant/`". Actually:
 - Class is `Mutant extends Fighter`, script at `mutant/Beast.gd`.
 - `BeastState` lives under `characters/mutant/states/`.
 
-So when extracting Mutant's frame data, walk **only** `characters/mutant/`.
+**Tightened scope rule:** for frame-data extraction (states, hitboxes,
+damage values, tag enums), walk `characters/mutant/states/` and
+`characters/mutant/Beast.gd` **only**. For **sprite assets**, that
+restriction is too tight — grep `Mutant.tscn` for `ExtResource` paths
+first, since some sprite resources may still live under
+`characters/alien/sprites/` (legacy from when Mutant was Alien). Don't
+assume sprite paths follow the state-folder rule.
 
 ### 5. The `Network` autoload is at `res://cl_port/Network.gd`, which extends a parent at `res://Network.gd`
 
@@ -198,11 +237,133 @@ version/link/id/overwrites/requires/priority. `client_side` is consumed
 elsewhere, so include it but don't expect ModLoader to bounce mods missing
 it.)
 
-### 7. Frame-advantage distance multiplier is /10, not "halved"
+### 7. Frame-advantage distance multiplier is /10, not "halved" — AND it's DEAD CODE
 
 RESEARCH.md §B.1 says "halved if dist < 50". Source says `/= 10`. Small but
 real — it makes close-range frame advantage matter ~5× less than the
 research suggested.
+
+**BUT** — second look at `eval_move()` shows the `/= 10` line never
+actually affects the score. The function declares a local
+`frame_advantage_modifier` (lowercase), divides it by 10 when
+`distance_closed < 50`, and then the eval expression at the bottom of the
+function uses the **uppercase module-level export** `FRAME_ADVANTAGE_MODIFIER`
+instead. The two lines that matter, from `AIController.gd`:
+
+```gdscript
+# inside eval_move(), distance branch:
+if distance_closed < 50:
+    frame_advantage_modifier /= 10   # local var — never read again
+# ...
+# end of eval_move(), the actual score expression:
+return frame_advantage * FRAME_ADVANTAGE_MODIFIER + damage_dealt * DAMAGE_MODIFIER + ...
+```
+
+The local `frame_advantage_modifier` is computed and discarded. The eval
+uses `FRAME_ADVANTAGE_MODIFIER` (constant 20). **So close-range frame
+advantage is NOT downweighted in the reference AI** — the downweight is a
+bug that the developer almost certainly intended but never wired up.
+
+**Implication for our Claude controller:** when we replicate the eval
+function (either as a tier-2 fallback or as part of a v2 hybrid), we have
+three choices, each defensible:
+
+- (a) **Replicate the bug** verbatim — match the reference AI's actual
+  behavior so A/B comparisons are clean.
+- (b) **Fix it** to `frame_advantage * (FRAME_ADVANTAGE_MODIFIER / 10)`
+  when `distance_closed < 50` — what the developer presumably meant.
+- (c) **Drop the downweight entirely** and just use the flat
+  `FRAME_ADVANTAGE_MODIFIER` everywhere — what the reference AI does in
+  practice anyway, but explicit.
+
+Recommendation: pick (a) for v1 tier-2 fallback (we want the fallback to
+match the reference AI we're A/B-ing against), and revisit if/when v2
+introduces re-weighting.
+
+### 8. `player_actionable` is singleplayer-ONLY — stronger basis for AI being SP-only
+
+RESEARCH.md justifies the AI-is-singleplayer-only constraint with a
+developer quote. The actual mechanical basis is stronger: in
+`game.gd::process_tick()`, the `player_actionable` signal is emitted only
+inside the `if singleplayer:` branch. The multiplayer branch is
+`elif !is_ghost: someones_turn = true` — **the signal literally does not
+fire** in multiplayer. Any AI mod that subscribes to `player_actionable`
+will see zero events in MP games, regardless of intent.
+
+This also contradicts the existing VALIDATION row that confirmed
+"`signal player_actionable()` is emitted inside `process_tick()`" without
+qualification — the emission is gated. Correction: it's declared
+unconditionally but emitted ONLY under `singleplayer==true`. Our previous
+phrasing was accurate at the declaration level but misleading at the
+emission level.
+
+**Implication for the bridge:** no extra defensive code needed to refuse
+MP — the hook itself is silent in MP. But for clarity and forward
+compatibility, the controller should still early-return on
+`!game.singleplayer` if the signal ever does get extended.
+
+### 9. YOMIRecord ModMain.gd lifecycle — RESEARCH §B.4 is wrong
+
+RESEARCH.md §B.4 claims the YOMIRecord `ModMain.gd` follows the convention
+"extensions registered in `_init()`, child nodes added in `_ready()`". The
+actual file:
+
+- Has **NO `_ready()` method at all**.
+- Puts **all** child instantiation inside `_init()`, using `load()` (not
+  `preload()`).
+- Declares `MOD_NAME` as `var`, not `const`.
+
+The "extensions in `_init`, nodes in `_ready`" split is a convention some
+mods follow but it is NOT enforced by ModLoader — both patterns work
+because `installScriptExtension` calls `childScript.new()` at extension
+time anyway, and `add_child()` works fine from `_init` as long as the
+parent is in-tree.
+
+**Implication for our mod:** we can pick either pattern, but must do so
+*explicitly* and document the choice. Combined with audit finding around
+`installScriptExtension` calling `.new()` at load time (which makes
+`_init` side effects persist), the recommendation is:
+
+- Keep `ClaudeLoader.gd` minimal — override `_ready` only, no `_init`
+  work.
+- Move **all** socket-opening, thread-spawning, and TCP wiring into
+  `ClaudeController._ready()`.
+- Do this so that if `ClaudeLoader` is ever extended twice (or loaded
+  inside a ghost viewport), no side effects fire from `_init`.
+
+### 10. `_editMetaData()` forcibly overwrites `_metadata.id` to "12345" on every load
+
+RESEARCH.md treats `_metadata.id` as a stable unique identifier per mod.
+**It is not.** `ModLoader._editMetaData()` rewrites every loaded mod's
+`_metadata.id` to the literal string `"12345"` and saves the modified
+metadata back to disk on every load. The id field is therefore
+non-stable across launches and non-unique across mods. The
+`_AIOpponents/_metadata` row in Finding 6 above showing `"id": "12345"`
+is not coincidence — every mod ends up with that id.
+
+**Implication for the bridge:** use `_metadata.name` (not `id`) for any
+unique-identification logic (e.g., refusing to attach twice, checking for
+co-installed mods like `_AIOpponents`). The name field is author-set and
+preserved.
+
+### 11. YomiBot frame-data corrections to RESEARCH §C
+
+Spot-checks against the actual state files turned up two RESEARCH §C
+errors worth correcting now so we don't bake them into the bridge's
+character-knowledge layer:
+
+- **Dive Kick** (Robot, aerial): **12 frames startup** (6f with
+  initiative active), **3 aim angles** selectable via XYPlot, **air-only**,
+  **600 damage on landing**. RESEARCH §C undercounted aim angles and
+  miscategorized as ground-air-both.
+- **Cowboy Hustle**: **"+1 meter on completion (interruptible)"** — the
+  meter gain is conditional on the state completing, and the state is
+  interrupt-frame-eligible mid-animation. RESEARCH §C had this as a flat
+  meter gain.
+
+These are illustrative — a full §C frame-data pass against
+`characters/{ninja,cowboy,wizard,robo,mutant}/states/*` is the open work
+item from RESEARCH §C row 3 below.
 
 ---
 
@@ -222,7 +383,43 @@ Still open:
 | 1 | Exact GodotSteam 3.5.1 binary tag — needs a local test run. |
 | 3 | Wizard / Robot / Mutant frame data — must walk `characters/{wizard,robo,mutant}/states/` and emit JSON. |
 | 4 | `Network.gd` input-deadline / turn-timeout constants for online play — reachable from source. |
-| 5 | Exact `queued_data` schema per move — verify by round-tripping a handful from the editor. |
+| 5 | Exact `queued_data` schema per move — verify by round-tripping a handful from the editor once the mod is built. |
+| 7 | macOS `.dylib` intent — forgotten? Steam-only distribution? LFS pointer instead of real binary? Verify locally after cloning. |
+| 8 | Mutant sprite asset paths — does `Mutant.tscn` reference `characters/alien/sprites/`, or are they all moved under `characters/mutant/`? Grep the `.tscn` for `ExtResource` paths. |
+| 9 | Behavior of `queued_extra.prediction` when `!= -1` (reference AI hard-codes `-1`, but the field is read by the sim — what does a real value mean?) |
+| 10 | Behavior of `queued_extra.reverse` when `true` (also hard-coded `false` in reference AI; sim behavior under `true` not characterized). |
+
+## Decisions adopted from audit
+
+The audit raised open design questions; the decisions reached (recorded
+here as a single source of truth) are:
+
+- **v1 = state-only Claude.** Claude is the move generator. The heuristic
+  reference scorer runs only as the **Tier 2 fallback** when Claude's
+  response fails validation against the pre-computed legal set. Tier 3
+  fallback is the no-op `{action: 'Continue', data: null, extra: {DI:
+  away, feint: false, prediction: -1, reverse: false}}`. All three tiers
+  log a tier label.
+- **v2 = state + ghost scores for Claude's own K candidates only.**
+  Claude does not score the heuristic's candidate space wholesale; it
+  proposes K=3-5 moves, ghost-evaluates each one, and uses the
+  per-candidate ghost output as additional input on its final pick.
+- **v0 category-picker baseline ships alongside v1 as an A/B target.**
+  Claude returns `{category: <ActionType enum value>, reasoning}`,
+  GDScript filters visible buttons to that category, and runs the
+  reference `get_best_move` on the filtered set. Gated behind a mode
+  option.
+- **Multihustle is scope-locked OUT for v1.** If `main.has_method(
+  "MultiHustle_AddData")` is true, the ClaudeController refuses to attach.
+- **DI selection is gated by hitstun state.** If `state.type == Hurt`,
+  Claude picks the DI vector. Otherwise the bridge defaults DI to "away"
+  and does not include it in the Claude prompt.
+- **Coexistence with `_AIOpponents`** is handled by setting
+  `_metadata.priority > -10000` (so we load *after* AxNoodle's AI) and
+  calling `queue_free()` on the `AIController` child *after* the
+  `._ready()` chain has run on our extension. This sidesteps the
+  silently-non-deterministic "both connect to player_actionable, last
+  wins" coexistence bug raised in audit finding 2.
 
 ---
 

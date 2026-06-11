@@ -182,8 +182,8 @@ mod and bridge exchange a hello frame and a one-byte ready marker:
 
 ```
 mod → bridge: {"type":"hello","mod_version":"0.1.0","schema_versions_supported":[1]}
-bridge → mod: {"type":"hello_ack","bridge_version":"0.1.0","schema_version_selected":1,"git_sha":"abc123","auth_token":"...32-byte hex..."}
-mod → bridge: {"type":"hello_auth","auth_token":"...same 32-byte hex from %LOCALAPPDATA%/claude_yomih/token..."}
+bridge → mod: {"type":"hello_ack","bridge_version":"0.1.0","schema_version_selected":1,"git_sha":"abc123"}
+mod → bridge: {"type":"hello_auth","auth_token":"...32-byte hex read from %LOCALAPPDATA%/claude_yomih/token..."}
 bridge → mod: <single byte 0x01 = ready>
 ```
 
@@ -192,12 +192,20 @@ the auth token does not match, both sides log `PROTO_INCOMPAT` /
 `AUTH_FAIL` and the mod marks `bridge_ready = false` (then runs every
 decision through Tier 2). See §16 for auth-token details.
 
+ERRATUM (security audit): `hello_ack` MUST NOT carry `auth_token` — the
+ack is sent to a still-unauthenticated peer, and echoing the token there
+would let any local process authenticate without reading the protected
+token file, defeating §16.1's threat model. The mod sources the token
+exclusively from `%LOCALAPPDATA%/claude_yomih/token`. On auth failure
+the bridge MAY send one `auth_fail` error envelope before closing; the
+mod treats any post-`hello_auth` byte other than `0x01` as failure.
+
 **Outcome envelope (canonical, single scheme).** Python ALWAYS returns
 the same outer shape on the wire, success or failure:
 
 ```json
 {"ok": true,  "outcome": "ranked|category", "response": {...}, "schema_version": 1, "git_sha": "..."}
-{"ok": false, "outcome": "error", "error_code": "claude_timeout|api_error|parse_failure|empty_ranked|schema_mismatch|auth_fail", "schema_version": 1}
+{"ok": false, "outcome": "error", "error_code": "claude_timeout|api_error|parse_failure|empty_ranked|all_invalid|schema_mismatch|auth_fail", "schema_version": 1}
 ```
 
 GDScript transport-level failures (connect_failed, no_connect, len_read,
@@ -389,7 +397,7 @@ Wrapped in the canonical envelope from §3:
     "feint": false,
     "reasoning_brief": "Opponent in HorizontalSlashRecovery, mid range, has burst — go for fast grab to corner them; parry as plan B.",
     "latency_ms": 947,
-    "model_version": "claude-opus-4-7"
+    "model_version": "claude-opus-4-8"
   }
 }
 ```
@@ -437,7 +445,7 @@ schema_mismatch, ranked_cardinality, transport_*}` for telemetry. See
     "category": "Attack",
     "reasoning_brief": "Mid range, opponent recovering — pressure now",
     "latency_ms": 412,
-    "model_version": "claude-sonnet-4-7"
+    "model_version": "claude-sonnet-4-6"
   }
 }
 ```
@@ -448,7 +456,10 @@ then runs the heuristic `get_best_move()` on that subset.
 
 ### 3.4 v2 second-round request
 
-Identical to §3.1 plus a `ghost_eval_results` block:
+Identical to §3.1 plus a `candidates_evaluated` block (ERRATUM: earlier
+prose called this block `ghost_eval_results`; the example below was always
+`candidates_evaluated`, which is the pinned wire key — the bridge accepts
+both for safety):
 
 ```json
 {
@@ -1148,7 +1159,7 @@ The state machine:
    (`decision_thread.wait_to_finish()`), check stale guards (same as
    `_apply_choice`). Set `ReplayManager.resimulating = true`. Run sticky-ghost
    K-loop synchronously (fast — see §8 budget). Build round-2 payload
-   (`mode: "v2_round2"`, includes `ghost_eval_results`). Set
+   (`mode: "v2_round2"`, includes `candidates_evaluated`). Set
    `resimulating = false`.
 3. Spawn **Thread_B** with the round-2 payload, Thread_B does round-2
    TCP, `call_deferred("_apply_choice", raw, request_id)`.
@@ -1629,7 +1640,7 @@ Every non-LLM-V1 outcome logs a `degradation_reason`. Values:
 | `api_error` | Python | Claude API returned a non-200 status |
 | `parse_failure` | Python | Claude's text response did not parse as JSON |
 | `empty_ranked` | Python or mod | `ranked: []` in response |
-| `all_invalid` | mod | Every entry in `ranked` failed validation |
+| `all_invalid` | Python or mod | Every entry in a non-empty `ranked` failed validation (the bridge pre-validates and returns it as an `error_code`; the mod's own walk can also conclude it) |
 | `mode_mismatch` | mod | Response `outcome` does not match request `mode` |
 | `schema_mismatch` | mod or Python | `schema_version` not 1 |
 | `ranked_cardinality` | mod | `len(ranked) > 50` |

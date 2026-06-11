@@ -136,16 +136,33 @@ if ($OutZip -ne "") {
     Info "output mode: -OutZip -> $DestZip (game install not touched)"
 } else {
     # Probe the standard Steam locations when -ExeDir was not given.
+    # The install folder is "YourOnlyMoveIsHUSTLE" (no spaces) on current
+    # Steam builds; older docs assumed a spaced name. Probe both, in every
+    # Steam library listed in libraryfolders.vdf.
+    $folderNames = @("YourOnlyMoveIsHUSTLE", "Your Only Move Is HUSTLE")
     $candidates = @()
     if ($ExeDir -ne "") {
         $candidates += $ExeDir
     } else {
+        $steamRoots = @()
         $pf86 = ${env:ProgramFiles(x86)}
-        if ($pf86) {
-            $candidates += (Join-Path $pf86 "Steam\steamapps\common\Your Only Move Is HUSTLE")
+        if ($pf86) { $steamRoots += (Join-Path $pf86 "Steam") }
+        if ($env:ProgramFiles) { $steamRoots += (Join-Path $env:ProgramFiles "Steam") }
+        # Every additional Steam library is listed as "path" in libraryfolders.vdf.
+        foreach ($root in @($steamRoots)) {
+            $vdf = Join-Path $root "steamapps\libraryfolders.vdf"
+            if (Test-Path -LiteralPath $vdf -PathType Leaf) {
+                foreach ($line in (Get-Content -LiteralPath $vdf)) {
+                    if ($line -match '"path"\s+"([^"]+)"') {
+                        $steamRoots += ($Matches[1] -replace '\\\\', '\')
+                    }
+                }
+            }
         }
-        if ($env:ProgramFiles) {
-            $candidates += (Join-Path $env:ProgramFiles "Steam\steamapps\common\Your Only Move Is HUSTLE")
+        foreach ($root in ($steamRoots | Select-Object -Unique)) {
+            foreach ($name in $folderNames) {
+                $candidates += (Join-Path $root (Join-Path "steamapps\common" $name))
+            }
         }
     }
     $resolvedExeDir = $null
@@ -158,8 +175,15 @@ if ($OutZip -ne "") {
               "    tools\build.ps1 -ExeDir `"D:\SteamLibrary\steamapps\common\Your Only Move Is HUSTLE`"`n" +
               "(Steam -> right-click the game -> Manage -> Browse local files)")
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $resolvedExeDir "Your Only Move Is HUSTLE.exe") -PathType Leaf)) {
-        Write-Warning "'$resolvedExeDir' exists but 'Your Only Move Is HUSTLE.exe' was not found in it. Continuing anyway -- double-check -ExeDir if the mod doesn't load."
+    # The Steam build ships as YourOnlyMoveIsHUSTLE.exe (no spaces); older
+    # docs assumed a spaced name. Accept either.
+    $exeNames = @("YourOnlyMoveIsHUSTLE.exe", "Your Only Move Is HUSTLE.exe")
+    $exeFound = $false
+    foreach ($exeName in $exeNames) {
+        if (Test-Path -LiteralPath (Join-Path $resolvedExeDir $exeName) -PathType Leaf) { $exeFound = $true; break }
+    }
+    if (-not $exeFound) {
+        Write-Warning "'$resolvedExeDir' exists but no game exe ($($exeNames -join ' / ')) was found in it. Continuing anyway -- double-check -ExeDir if the mod doesn't load."
     }
     Info "game install: $resolvedExeDir"
 

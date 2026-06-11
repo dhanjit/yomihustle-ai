@@ -2154,6 +2154,17 @@ Windows, the bridge applies a restrictive ACL via `icacls` or sets
 hidden+system attributes (best-effort, Windows local security is
 limited).
 
+ERRATUM (live pre-flight, 2026-06-11): **Microsoft Store Python
+virtualizes AppData** — files written under `%LOCALAPPDATA%` land in
+`%LOCALAPPDATA%/Packages/PythonSoftwareFoundation.…/LocalCache/Local/`
+where the game cannot read them, so the handshake would always
+`auth_fail`. The bridge detects Store Python (`WindowsApps` in
+`sys.executable`) and writes its runtime files to `~/.claude_yomih`
+instead (home dirs are not virtualized); the mod probes
+`%LOCALAPPDATA%/claude_yomih` first, then `~/.claude_yomih`, then
+`user://claude_yomih`. The token-file trust model is unchanged — both
+locations are user-owned.
+
 The mod reads the same path and includes the token in the
 `hello_auth` frame (§3). If the token doesn't match, the bridge
 closes the connection and logs `auth_fail`. The mod surfaces

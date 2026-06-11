@@ -76,9 +76,22 @@ DEFAULT_MODEL_V0 = "claude-sonnet-4-6"  # SS10: v0 is the cheapest Claude path
 log = logging.getLogger("claude_yomih.bridge")
 
 
+def _is_store_python():
+    """Microsoft Store Python runs in an app container that VIRTUALIZES
+    AppData writes: files written under %LOCALAPPDATA% silently land in
+    %LOCALAPPDATA%/Packages/PythonSoftwareFoundation.../LocalCache/Local/
+    where no other process (i.e. the game) can find them. Non-AppData
+    paths write through normally."""
+    return os.name == "nt" and "windowsapps" in sys.executable.lower()
+
+
 def default_data_dir():
-    """%LOCALAPPDATA%/claude_yomih on Windows, ~/.local/share/claude_yomih else (SS16.1)."""
+    """%LOCALAPPDATA%/claude_yomih on Windows (~/.claude_yomih under Store
+    Python, which virtualizes AppData), ~/.local/share/claude_yomih else
+    (SS16.1). The mod probes both Windows locations."""
     if os.name == "nt":
+        if _is_store_python():
+            return os.path.join(os.path.expanduser("~"), ".claude_yomih")
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
         return os.path.join(base, "claude_yomih")
     return os.path.join(os.path.expanduser("~"), ".local", "share", "claude_yomih")
@@ -948,6 +961,10 @@ class BridgeServer(object):
         if self._listener is None:
             raise SystemExit("could not bind %s on ports %s: %s" % (self.host, candidates, last_err))
         self._write_runtime_files()
+        if _is_store_python():
+            log.info("Microsoft Store Python detected — runtime files in %s "
+                     "(AppData is virtualized inside the Store sandbox)",
+                     self.bridge.data_dir)
         log.info("bridge %s listening on %s:%d (git %s)",
                  BRIDGE_VERSION, self.host, self.port, self.bridge.git_sha)
 

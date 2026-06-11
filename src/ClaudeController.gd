@@ -224,18 +224,34 @@ func _read_options():
 
 # Bridge drops its chosen port / auth token under %LOCALAPPDATA%/claude_yomih
 # (§12.5 / §16.1). Falls back to OS user data dir off Windows.
-func _appdata_path(fname):
-	var base = OS.get_environment("LOCALAPPDATA")
-	if base == "":
-		base = OS.get_user_data_dir()
-	return base.plus_file("claude_yomih").plus_file(fname)
+# Runtime-file rendezvous, in probe order. The bridge writes to
+# %LOCALAPPDATA%/claude_yomih normally, but under Microsoft Store Python
+# (which virtualizes AppData into its package sandbox) it falls back to
+# ~/.claude_yomih — so the mod must probe both.
+func _runtime_paths(fname):
+	var paths = []
+	var local = OS.get_environment("LOCALAPPDATA")
+	if local != "":
+		paths.append(local.plus_file("claude_yomih").plus_file(fname))
+	var home = OS.get_environment("USERPROFILE")
+	if home == "":
+		home = OS.get_environment("HOME")
+	if home != "":
+		paths.append(home.plus_file(".claude_yomih").plus_file(fname))
+	paths.append(OS.get_user_data_dir().plus_file("claude_yomih").plus_file(fname))
+	return paths
+
+func _read_runtime_file(fname):
+	var f = File.new()
+	for path in _runtime_paths(fname):
+		if f.open(path, File.READ) == OK:
+			var txt = f.get_as_text().strip_edges()
+			f.close()
+			return txt
+	return ""
 
 func _read_port_file():
-	var f = File.new()
-	if f.open(_appdata_path("port"), File.READ) != OK:
-		return -1
-	var txt = f.get_as_text().strip_edges()
-	f.close()
+	var txt = _read_runtime_file("port")
 	if txt.is_valid_integer():
 		var p = int(txt)
 		if p >= 1024 and p <= 65535:
@@ -243,12 +259,7 @@ func _read_port_file():
 	return -1
 
 func _read_token():
-	var f = File.new()
-	if f.open(_appdata_path("token"), File.READ) != OK:
-		return ""
-	var txt = f.get_as_text().strip_edges()
-	f.close()
-	return txt
+	return _read_runtime_file("token")
 
 # ---------------------------------------------------------------------------
 # Bridge probe + socket (§7 / §9.3)

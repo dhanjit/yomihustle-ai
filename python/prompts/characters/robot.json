@@ -1,0 +1,1235 @@
+{
+ "character": "Robot",
+ "source": "extracted from uzkbwza/hustle@4450348 local clone",
+ "conventions": {
+  "ticks": "1 tick = 1 game frame (60/s). Startup = hitbox start_tick (state tick when hitbox activates). IASA resolved: iasa_at<0 means anim_length+iasa_at (CharState.init).",
+  "ActionType_enum": {
+   "0": "Movement",
+   "1": "Attack",
+   "2": "Special",
+   "3": "Super",
+   "4": "Defense",
+   "5": "Hurt"
+  },
+  "hit_height_enum": {
+   "0": "High",
+   "1": "Mid",
+   "2": "Low"
+  },
+  "menu_rule": "a state is an action button iff show_in_menu && selectable && interrupt_from_string non-empty (BaseChar.gd init -> action_cancels; ActionButtons.gd)"
+ },
+ "moves": [
+  {
+   "Move": "Wait",
+   "Action": "Wait",
+   "Startup": null,
+   "IASA": 9,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Idle 10 ticks. Universal.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/Idle.gd"
+   ]
+  },
+  {
+   "Move": "Jump",
+   "Action": "Jump",
+   "Startup": null,
+   "IASA": 119,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "anim_length 120, exits to Fall when rising ends; usable in All stances, resets stance to Normal. Fly can be engaged after leaving ground via extra options.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/Jump.gd"
+   ]
+  },
+  {
+   "Move": "Super Jump",
+   "Action": "SuperJump",
+   "Startup": null,
+   "IASA": 119,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Robot version: projectile armor ticks 7-38, air movements restored to 3 at tick 8. Interrupt windows at ticks 15/28/42/60. Data: direction.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/SuperJump.gd",
+    "characters/states/Jump.gd"
+   ]
+  },
+  {
+   "Move": "Fall",
+   "Action": "Fall",
+   "Startup": null,
+   "IASA": 10,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "iasa 11 normally, 10 while flying (re-interruptible every 10 ticks during flight). Auto 'Landing' on touching ground.",
+   "ActionType": "Movement",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Fall.gd"
+   ]
+  },
+  {
+   "Move": "STEP",
+   "Action": "Step",
+   "Startup": 9,
+   "IASA": 7,
+   "Active": 5,
+   "Damage": "60",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Robot's dash replacement. Teleports forward 6px(t5)+15px(t6); trailing hitbox t9-13: 60 dmg, hits LOW, knockdown, second box hits OTG. +3 ticks startup lag when not in combo; reverse adds 2 ticks + penalty; beats backdash (non-reversed). Cannot be counterhit. interrupts into RETURN.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Step.gd"
+   ]
+  },
+  {
+   "Move": "Super Dash",
+   "Action": "ChargeDash",
+   "Startup": null,
+   "IASA": null,
+   "Active": "-",
+   "Damage": "60 (on release)",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Hold-to-charge dash (endless); at tick 6 of release auto-fires ChargedStep: same as STEP but charged=true grants projectile armor and applies forces with no speed limit (force 15).",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/states/ChargeDash.gd",
+    "characters/robo/states/Step.gd"
+   ]
+  },
+  {
+   "Move": "RETURN",
+   "Action": "Return",
+   "Startup": null,
+   "IASA": 9,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Only selectable immediately after STEP (Step interrupts into 'Return' category). Teleports backward 12px at tick 3.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Return.gd"
+   ]
+  },
+  {
+   "Move": "PROPEL",
+   "Action": "Propel",
+   "Startup": null,
+   "IASA": 12,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Slide: sets ground friction to 0.2 for 20 ticks and applies forward force after tick 3. Drive-cancellable (HostCommand try_drive_cancel).",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Propel.gd"
+   ]
+  },
+  {
+   "Move": "KEYPUNCH",
+   "Action": "Punch",
+   "Startup": 4,
+   "IASA": 14,
+   "Active": 2,
+   "Damage": "55",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Fast jab; 3 overlapping hitboxes (all 55). Hitstun only 5 ticks.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "PING",
+   "Action": "Slap",
+   "Startup": 6,
+   "IASA": 14,
+   "Active": 3,
+   "Damage": "95",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Knockdown. Drive-cancellable on block (try_drive_cancel @ command tick).",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "KICK USER",
+   "Action": "SideKick",
+   "Startup": 11,
+   "IASA": 23,
+   "Active": 5,
+   "Damage": "95",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Hard knockdown launcher. With initiative: skips ticks 3->5 (faster) and becomes self hit-cancellable. Drive-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/SideKick.gd"
+   ]
+  },
+  {
+   "Move": "CONCUSSIVE BLAST",
+   "Action": "Blast",
+   "Startup": 5,
+   "IASA": 16,
+   "Active": 1,
+   "Damage": "70",
+   "Resource": "-",
+   "Proration": "1",
+   "Notes": "Single 1-tick burst (2 overlapping boxes), +1 on block. Drive-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "OPTICAL BEAM",
+   "Action": "EyeBeam",
+   "Startup": 6,
+   "IASA": 18,
+   "Active": 3,
+   "Damage": "55 (beam), 80 (4th box)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Long horizontal beam; 4 overlapping boxes, the last does 80. +1 on block. Drive-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "SPIN CYCLE",
+   "Action": "Lariat",
+   "Startup": 7,
+   "IASA": 19,
+   "Active": "12 (looping 3on/3off)",
+   "Damage": "30 per hit",
+   "Resource": "-",
+   "Proration": "1",
+   "Notes": "Multi-hit lariat t7-18. Aerial-attack invulnerability ticks 4-15 when used with initiative. Drive-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Lariat.gd"
+   ]
+  },
+  {
+   "Move": "VACUUM",
+   "Action": "Vacuum",
+   "Startup": 13,
+   "IASA": 23,
+   "Active": 1,
+   "Damage": "65 / 100 (overlapping boxes)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Wind box ticks 0-15 pulls opponent toward Robot (force 0.45), then hit at t13. +2 on block.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Missile.gd"
+   ]
+  },
+  {
+   "Move": "EARTHQUAKE",
+   "Action": "GroundPound",
+   "Startup": 6,
+   "IASA": 23,
+   "Active": 3,
+   "Damage": "80 (quake, x2 boxes), 40 (aftershock t7-8)",
+   "Resource": "-",
+   "Proration": "1 (aftershock)",
+   "Notes": "Ground slam: quake hits LOW + OTG + knockdown. One quake box (Hitbox4, 80, followup EarthquakeThrow) is zeroed in code if legacy used_earthquake_grab flag is set (never in practice). Hitbox3 (75, mid, OTG) has start_tick=-1 and is never scheduled by the engine: dead box. Drive-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/GroundPound.gd"
+   ]
+  },
+  {
+   "Move": "FLAME THROWER",
+   "Action": "Flamethrower",
+   "Startup": 10,
+   "IASA": 15,
+   "Active": 2,
+   "Damage": "50 + flame pool 2/tick",
+   "Resource": "one flame pool at a time (can_flamethrower)",
+   "Proration": "-",
+   "Notes": "Hits LOW, +1 on block. Spawns GroundFire pool at t11: 100px wide, burns grounded non-jumping opponent 2 dmg/tick for 120 ticks. Not reusable until pool expires.",
+   "ActionType": "Special",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Flamethrower.gd",
+    "characters/robo/projectiles/states/GroundFire.gd"
+   ]
+  },
+  {
+   "Move": "BOOT",
+   "Action": "AirKick",
+   "Startup": 8,
+   "IASA": 20,
+   "Active": 3,
+   "Damage": "50 / 70 (overlapping boxes)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Air kick, +2 on block, land-cancellable. 4 overlapping boxes: 2x50, 2x70.",
+   "ActionType": "Attack",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "KICK USER (air)",
+   "Action": "SideKickAir",
+   "Startup": 11,
+   "IASA": 23,
+   "Active": 5,
+   "Damage": "95",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Aerial version; knockdown (not hard), land-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/SideKick.gd"
+   ]
+  },
+  {
+   "Move": "OPTICAL BEAM (air)",
+   "Action": "EyeBeamAir",
+   "Startup": 6,
+   "IASA": 18,
+   "Active": 3,
+   "Damage": "55 (beam), 80 (4th box)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Air beam; land-cancellable; anim 31.",
+   "ActionType": "Attack",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "SAW BLADE",
+   "Action": "SawBlade",
+   "Startup": 8,
+   "IASA": 26,
+   "Active": "2 + 6 (looping 1on/1off)",
+   "Damage": "90/70 (first hit), then 35/18 per loop hit",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "t8-9 main hit then t10-15 multihit; +3 on block; recoils backward-up on hit (force 6); land-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/SawBlade.gd"
+   ]
+  },
+  {
+   "Move": "CRASH",
+   "Action": "Plummet",
+   "Startup": 4,
+   "IASA": 39,
+   "Active": 5,
+   "Damage": "80",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Dive: from t3 sets velocity to 13 straight down (x*0.05); hitbox always_on from t4. Lands into Landing (triggers ground-pound landing shockwave if charged). +1 on block.",
+   "ActionType": "Attack",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Plummet.gd"
+   ]
+  },
+  {
+   "Move": "THUNDER CLAP",
+   "Action": "ClapJump",
+   "Startup": 12,
+   "IASA": 23,
+   "Active": 3,
+   "Damage": "110 (min 30)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Hop + clap, knockdown, +3 on block. Custom gravity (0.58 grounded start / 0.80 air start). Data: Direction (x) and Auto (auto-chase with 4-tick loops, combo scaling 2). First use per combo: extra victim hitlag (+15), no ground bounce. Landing after clap = ClapLand (120 dmg hitbox t1-3 in that state).",
+   "ActionType": "Special",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/ClapJump.gd",
+    "characters/robo/states/ClapLand.gd"
+   ]
+  },
+  {
+   "Move": "CHAIN SAW",
+   "Action": "Chainsaw",
+   "Startup": 11,
+   "IASA": 34,
+   "Active": 10,
+   "Damage": "24 per hit (min 6)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Arm sweeps an arc between data Start and End angles at radius 48px; hitbox positions update per tick, knockback follows arc tangent. Looping 1on/1off, +3 on block; iasa_on_hit 19. Hitbox timing set in code (chainsaw_start_tick 10 -> active t11-20), overriding .tscn.",
+   "ActionType": "Special",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Chainsaw.gd"
+   ]
+  },
+  {
+   "Move": "Throw",
+   "Action": "Grab",
+   "Startup": 3,
+   "IASA": 15,
+   "Active": 3,
+   "Damage": "via followup throw",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Standard grab -> Hold -> Forward/Back Throw. Throwbox beats_grab=false.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/Grab.gd"
+   ]
+  },
+  {
+   "Move": "Throw (air)",
+   "Action": "AirGrab",
+   "Startup": 3,
+   "IASA": 15,
+   "Active": 3,
+   "Damage": "via followup throw",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Air grab -> AirHold -> air throws. Land-cancel recovery 6.",
+   "ActionType": "Attack",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/AirGrab.gd"
+   ]
+  },
+  {
+   "Move": "Forward Throw",
+   "Action": "ForwardThrow",
+   "Startup": null,
+   "IASA": 28,
+   "Active": "-",
+   "Damage": "150 (95 in combo)",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Release tick 18, knockback 22, knockdown.",
+   "ActionType": "Attack",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/ThrowState.gd"
+   ]
+  },
+  {
+   "Move": "Back Throw",
+   "Action": "BackThrow",
+   "Startup": null,
+   "IASA": 28,
+   "Active": "-",
+   "Damage": "150 (95 in combo)",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Release tick 18, knockback 22, knockdown.",
+   "ActionType": "Attack",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/ThrowState.gd"
+   ]
+  },
+  {
+   "Move": "Forward Throw (air)",
+   "Action": "AirForwardThrow",
+   "Startup": null,
+   "IASA": 28,
+   "Active": "-",
+   "Damage": "150 (75 in combo)",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Air-ground-bounces victim when used mid-combo.",
+   "ActionType": "Attack",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/AirForwardThrow.gd"
+   ]
+  },
+  {
+   "Move": "Back Throw (air)",
+   "Action": "AirBackThrow",
+   "Startup": null,
+   "IASA": 28,
+   "Active": "-",
+   "Damage": "150 (75 in combo)",
+   "Resource": "-",
+   "Proration": "2",
+   "Notes": "Air-ground-bounces victim when used mid-combo.",
+   "ActionType": "Attack",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/AirForwardThrow.gd"
+   ]
+  },
+  {
+   "Move": "COMMAND: GRAB",
+   "Action": "CommandGrab",
+   "Startup": 7,
+   "IASA": 20,
+   "Active": 2,
+   "Damage": "90 per slam in combo / 147 per slam raw (2 slams via GroundSlam)",
+   "Resource": "-",
+   "Proration": "combo_proration 12 as starter",
+   "Notes": "Command grab; throw invuln t2-7; data = reverse. Throwbox -> GroundSlam: slams at f21 and f40 (hit applied directly via hitbox.hit()), hard knockdown, release f41.",
+   "ActionType": "Special",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/CommandGrab.gd",
+    "characters/robo/states/GroundSlam.gd"
+   ]
+  },
+  {
+   "Move": "TRY-CATCH",
+   "Action": "DisembowelHitGrab",
+   "Startup": 9,
+   "IASA": 26,
+   "Active": 2,
+   "Damage": "3x70 (mash followup) or 90/140 (slam followup)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "COMBO ONLY version. Data false -> DisembowelGrabFollowup (hits t18/29/40, 70 each, release f41); data true -> TryCatchGroundSlam (single slam: 90 in combo / 140 raw, hard knockdown, iasa 56).",
+   "ActionType": "Special",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DisembowelGrab.gd"
+   ]
+  },
+  {
+   "Move": "TRY-CATCH (neutral)",
+   "Action": "DisembowelHitGrabNeutral",
+   "Startup": 9,
+   "IASA": 26,
+   "Active": 2,
+   "Damage": "3x70 (mash followup) or 90/140 (slam followup)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "NEUTRAL ONLY version of TRY-CATCH; same followups.",
+   "ActionType": "Special",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DisembowelGrab.gd"
+   ]
+  },
+  {
+   "Move": "OVERFLOW",
+   "Action": "OverflowGrab",
+   "Startup": 7,
+   "IASA": 22,
+   "Active": 2,
+   "Damage": "130 (followup release)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Aerial unblockable grab (guard_break hitbox). -> OverflowFollowup: release f31, dmg 130, restores 1 air movement, kills fly. Land-cancel recovery 6, min land cancel frame 8.",
+   "ActionType": "Special",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/OverflowGrab.gd",
+    "characters/robo/states/OverflowFollowup.gd"
+   ]
+  },
+  {
+   "Move": "BOUNDS CHECK",
+   "Action": "CornerCarryHitGrab",
+   "Startup": 5,
+   "IASA": 35,
+   "Active": 13,
+   "Damage": "180 (wall release)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Guard-break flying grab; projectile armor t0-15, flies forward (force 1.5/tick to t15). On grab -> CornerCarryHold: carries opponent toward corner (force 2/tick, max 240 ticks, only 20 in combo, releases 64px from wall) -> CornerCarryRelease: 180 dmg wall slam. Reversed raw use adds 25 penalty.",
+   "ActionType": "Special",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/CornerCarryGrab.gd",
+    "characters/robo/states/CornerCarryHold.gd",
+    "characters/robo/states/CornerCarryRelease.gd"
+   ]
+  },
+  {
+   "Move": "BOUNDS CHECK (air)",
+   "Action": "CornerCarryHitGrabAir",
+   "Startup": 5,
+   "IASA": 35,
+   "Active": 13,
+   "Damage": "180 (wall release)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Aerial version of BOUNDS CHECK; same carry/release.",
+   "ActionType": "Special",
+   "AirType": "Aerial",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/CornerCarryGrab.gd"
+   ]
+  },
+  {
+   "Move": "DRIVE",
+   "Action": "Drive",
+   "Startup": null,
+   "IASA": 10,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Enters Drive (motorcycle) stance. anim 20, iasa 10, interruptible on opponent turn.",
+   "ActionType": "Special",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/RobotState.gd"
+   ]
+  },
+  {
+   "Move": "IDLE (Drive)",
+   "Action": "DriveIdle",
+   "Startup": null,
+   "IASA": 9,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Drive-stance only. Sit still on the bike (dir 0).",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveForward.gd"
+   ]
+  },
+  {
+   "Move": "FORWARD (Drive)",
+   "Action": "DriveForward",
+   "Startup": 4,
+   "IASA": 11,
+   "Active": 5,
+   "Damage": "60",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Drive-stance only. Accelerates (3.5/tick, no force limit, speed cap 20); always_on contact hitbox 60 dmg, knockdown, OTG, +1 on block; projectile armor t0-5. Hold continues; with drive_cancel extra ends in UnDriveCancel. Drive-cancellable on block.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveForward.gd"
+   ]
+  },
+  {
+   "Move": "BACKWARD (Drive)",
+   "Action": "DriveBackward",
+   "Startup": null,
+   "IASA": 11,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Drive-stance only. Reverses at 2.0/tick (dir -1). Switching to Forward right after stalls 6 ticks and resets momentum.",
+   "ActionType": "Movement",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveForward.gd"
+   ]
+  },
+  {
+   "Move": "WHEELIE (Drive)",
+   "Action": "DriveWheelie",
+   "Startup": 7,
+   "IASA": 23,
+   "Active": 9,
+   "Damage": "80 (x2 boxes t7-15), 80 (t12-13)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Drive-stance only. Front wheel attack; +1 on block. Drive-cancellable.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveWheelie.gd"
+   ]
+  },
+  {
+   "Move": "CLUTCH (Drive)",
+   "Action": "DriveWheelieGrab",
+   "Startup": 6,
+   "IASA": 23,
+   "Active": 5,
+   "Damage": "120 (throw)",
+   "Resource": "-",
+   "Proration": "2 (throw)",
+   "Notes": "Drive-stance only. Throwbox t6-10 -> DriveWheelieThrow: release f14, 120 dmg, launches up (dir_y -1), wall_slam, iasa 20.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveWheelie.gd"
+   ]
+  },
+  {
+   "Move": "DRIFT (Drive)",
+   "Action": "DriveDrift",
+   "Startup": 6,
+   "IASA": 19,
+   "Active": 3,
+   "Damage": "100",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Drive-stance only, EXITS Drive. Hits LOW, hard knockdown, +1 on block; projectile invulnerability t0-10; heavy x-friction slide.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveDrift.gd"
+   ]
+  },
+  {
+   "Move": "JUMPSTART (Drive)",
+   "Action": "DriveJump",
+   "Startup": 5,
+   "IASA": 59,
+   "Active": 5,
+   "Damage": "50",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Drive-stance only, EXITS Drive. Bike jump (data x = direction, vertical force up to -10); always_on hitbox 50 dmg +2; airborne until landing (interrupt at t20), custom grav 0.6.",
+   "ActionType": "Attack",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveJump.gd"
+   ]
+  },
+  {
+   "Move": "BOOST (Drive)",
+   "Action": "DriveBoost",
+   "Startup": 6,
+   "IASA": 17,
+   "Active": 10,
+   "Damage": "100 (t6-15), 100 (t12-13, OTG)",
+   "Resource": "1 super bar",
+   "Proration": "-",
+   "Notes": "Drive-stance LEVEL 1 SUPER. Invulnerable t1-6 with initiative; afterimages; spawns 60-tick LOIC-type ground fire (2 dmg/tick). Drive-cancellable.",
+   "ActionType": "Super",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DriveWheelie.gd",
+    "characters/robo/projectiles/states/GroundFire.gd"
+   ]
+  },
+  {
+   "Move": "REMOTE BOMB",
+   "Action": "Grenade",
+   "Startup": null,
+   "IASA": 12,
+   "Active": "-",
+   "Damage": "80 contact (50 in combo); 120 explosion (min 70)",
+   "Resource": "one grenade at a time",
+   "Proration": "-",
+   "Notes": "Tosses grenade (data x/y direction, speed 10.5, from above or below). Inert grenade can be detonated any turn via 'DETONATE' extra (nade_activated) -> NadeExplosion: 120 dmg, knockdown, +3; optional bounce impulse (speed 10) before detonating. Grenade hitting/being blocked enables opponent magnetization.",
+   "ActionType": "Special",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/Grenade.gd",
+    "characters/robo/projectiles/RobotGrenade.tscn",
+    "characters/robo/projectiles/NadeExplosion.tscn"
+   ]
+  },
+  {
+   "Move": "MAGNETIZE",
+   "Action": "Magnetize",
+   "Startup": null,
+   "IASA": 15,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "requires grenade out; magnet not already active",
+   "Proration": "-",
+   "Notes": "Starts 100-tick magnet: pulls the grenade toward Robot (bomb pull strength ramps 0->1.0 by +0.1/tick); if the grenade hit or was blocked, also pulls the OPPONENT (strength 1.6, x0.75 if blocked; grounded opponents not pulled vertically). In combo, interruptible from tick 7. Magnet ends early when bomb arrives within 64px after 10+ ticks.",
+   "ActionType": "Special",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Magnetize.gd",
+    "characters/robo/Robot.gd"
+   ]
+  },
+  {
+   "Move": "LAUNCH",
+   "Action": "Missile",
+   "Startup": null,
+   "IASA": 6,
+   "Active": "-",
+   "Damage": "65 per missile (3 missiles)",
+   "Resource": "air option bar: needs >=25%, drains ~8.3% per missile",
+   "Proration": "-",
+   "Notes": "Fires 3 homing missiles (state tick loops back, one missile per cycle at projectile_tick 5). Missile hitbox 65 dmg, knockback 12. Listed in the Super menu category but costs no super bars.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/Missile.gd",
+    "characters/robo/projectiles/Missile.tscn"
+   ]
+  },
+  {
+   "Move": "LOIC",
+   "Action": "LOIC",
+   "Startup": null,
+   "IASA": 12,
+   "Active": "-",
+   "Damage": "215 (110 in combo, min 70)",
+   "Resource": "2 super bars + full LOIC meter (1000)",
+   "Proration": "-",
+   "Notes": "Orbital laser. Usable only when can_loic (meter full AND >=2 bars) and no strike already out. Spawns sky marker over opponent (or self via cut Galvanize data); aim delay = 14 + Delay%*(85-14) ticks, then fires beam: hits HIGH, knockdown, OTG, combo scaling x2, active 120 ticks. Beam can be re-aimed each turn via LOIC direction extra (loic_dir). LOIC meter: starts 500, +5/tick (paused while strike active), drains on use.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/LOIC.gd",
+    "characters/robo/projectiles/orbital_strike.tscn",
+    "characters/robo/Robot.gd"
+   ]
+  },
+  {
+   "Move": "SHUTDOWN",
+   "Action": "DisableLoic",
+   "Startup": null,
+   "IASA": 12,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Cancels the active orbital strike (only usable while one is out and not already deactivating).",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/DisableLoic.gd"
+   ]
+  },
+  {
+   "Move": "KILL PROCESS",
+   "Action": "KillProcess",
+   "Startup": 6,
+   "IASA": 31,
+   "Active": 6,
+   "Damage": "landing hit: 150+75/bar raw, 150+30/bar in combo (min 20/bar)",
+   "Resource": "ALL super bars (requires >=3)",
+   "Proration": "5 (throwbox)",
+   "Notes": "Command grab super: throwbox t6-11 -> KillProcessSpin (carries up, custom grav) -> KillProcessLanding (damage scales with bars consumed; hitbox t1-4 there). The scene's extra 0-dmg Hitbox (start_tick 0) is never activated. At 9 bars raw it is an INSTANT KILL (level treated as 200 => 15150). Invulnerable t1-9 with initiative + projectile invuln; installs super armor on landing. Kills fly.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/AirGrabSuper.gd",
+    "characters/robo/states/KillProcessSpin.gd",
+    "characters/robo/states/KillProcessLanding.gd"
+   ]
+  },
+  {
+   "Move": "Block",
+   "Action": "ParryHigh",
+   "Startup": null,
+   "IASA": 19,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Standard block (NewParry, endless). Robot cannot perfect parry while flying.",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/NewParry.gd"
+   ]
+  },
+  {
+   "Move": "Block (after whiff)",
+   "Action": "ParryAfterWhiff",
+   "Startup": null,
+   "IASA": 19,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Block variant offered after whiff cancel.",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/NewParry.gd"
+   ]
+  },
+  {
+   "Move": "Push Block",
+   "Action": "ParrySuper",
+   "Startup": 0,
+   "IASA": 19,
+   "Active": 20,
+   "Damage": "0 (pushback box)",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Blocks and pushes attacker away (hitbox t0-19, 0 dmg).",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/NewParry.gd"
+   ]
+  },
+  {
+   "Move": "Brace High",
+   "Action": "CounterAttackHi",
+   "Startup": null,
+   "IASA": 59,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Counter vs high attacks (anim 60).",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/CounterAttack.gd"
+   ]
+  },
+  {
+   "Move": "Brace Low",
+   "Action": "CounterAttackLow",
+   "Startup": null,
+   "IASA": 59,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Counter vs low attacks.",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/CounterAttack.gd"
+   ]
+  },
+  {
+   "Move": "Brace Throw",
+   "Action": "CounterAttackGrab",
+   "Startup": null,
+   "IASA": 59,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Counter vs throws.",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/CounterAttack.gd"
+   ]
+  },
+  {
+   "Move": "Dodge",
+   "Action": "Roll",
+   "Startup": null,
+   "IASA": 17,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Roll dodge (RollDodge base; data = direction). Robot's version disables flight during it (can_fly=false).",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/Roll.gd"
+   ]
+  },
+  {
+   "Move": "Tech Dodge",
+   "Action": "TechRoll",
+   "Startup": null,
+   "IASA": 17,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Roll from knockdown.",
+   "ActionType": "Defense",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/RollStartup.gd"
+   ]
+  },
+  {
+   "Move": "Getup",
+   "Action": "Getup",
+   "Startup": null,
+   "IASA": 7,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Rise from knockdown.",
+   "ActionType": "Defense",
+   "AirType": "Grounded",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/Getup.gd"
+   ]
+  },
+  {
+   "Move": "Hustle",
+   "Action": "Taunt",
+   "Startup": null,
+   "IASA": 44,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "-",
+   "Proration": "-",
+   "Notes": "Taunt; grounded anim 45 (air 11, holdable). Applies 'sadness' only outside combos; starts hustle FX.",
+   "ActionType": "Defense",
+   "AirType": "Both",
+   "source_files": [
+    "characters/robo/Robot.tscn",
+    "characters/robo/states/Taunt.gd"
+   ]
+  },
+  {
+   "Move": "Burst",
+   "Action": "Burst",
+   "Startup": 2,
+   "IASA": 24,
+   "Active": 1,
+   "Damage": "0",
+   "Resource": "1 burst",
+   "Proration": "9001",
+   "Notes": "Universal burst; hits OTG; Robot refill: bursting restores air option bar to max. Stops flight (HostCommand stop_flying).",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/Burst.gd",
+    "characters/robo/Robot.gd"
+   ]
+  },
+  {
+   "Move": "Burst (defensive)",
+   "Action": "DefensiveBurst",
+   "Startup": 2,
+   "IASA": 24,
+   "Active": 1,
+   "Damage": "0",
+   "Resource": "1 burst",
+   "Proration": "9001",
+   "Notes": "Neutral-only burst.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/Burst.gd"
+   ]
+  },
+  {
+   "Move": "Burst Cancel",
+   "Action": "OffensiveBurst",
+   "Startup": 1,
+   "IASA": 15,
+   "Active": 1,
+   "Damage": "0",
+   "Resource": "1 burst",
+   "Proration": "-",
+   "Notes": "Combo-only burst cancel; hits OTG.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/robo/Robot.tscn",
+    "characters/states/OffensiveBurst.gd"
+   ]
+  },
+  {
+   "Move": "Inst. Cancel",
+   "Action": "InstantCancel",
+   "Startup": null,
+   "IASA": 0,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "1 super bar",
+   "Proration": "-",
+   "Notes": "Cancel current move after it HIT (hit_fighter_last or in combo); 1-tick state.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/InstantCancel.gd",
+    "characters/states/SuperMove.gd"
+   ]
+  },
+  {
+   "Move": "Whiff Cancel",
+   "Action": "WhiffInstantCancel",
+   "Startup": null,
+   "IASA": 1,
+   "Active": "-",
+   "Damage": "-",
+   "Resource": "1 burst OR 75% burst meter (1125/1500)",
+   "Proration": "-",
+   "Notes": "Cancel a whiffed move; unusable if parried/blocked. Enabling armor during it adds +2 armor startup ticks.",
+   "ActionType": "Super",
+   "AirType": "Both",
+   "source_files": [
+    "characters/BaseChar.tscn",
+    "characters/states/WhiffInstantCancel.gd",
+    "characters/robo/Robot.gd"
+   ]
+  }
+ ],
+ "stances": [
+  {
+   "name": "Normal",
+   "description": "Default stance. Most moves require it (allowed_stances_string 'Normal') or allow 'All'."
+  },
+  {
+   "name": "Drive",
+   "description": "Motorcycle stance entered via DRIVE (Special, grounded, iasa 10). While in Drive: IDLE/FORWARD/BACKWARD movement, WHEELIE, CLUTCH (grab), DRIFT (exits, low hard-knockdown), JUMPSTART (exits, airborne), BOOST (level-1 super). Exit via DRIFT/JUMPSTART, Jump/SuperJump (stance->Normal), drive-cancel mechanics, or universal All-stance moves. The drive_cancel extra option pre-arms a cancel: on block (on_attack_blocked) or at a move's HostCommand tick, try_drive_cancel switches stance via DriveCancel/UnDriveCancel (iasa 9) or FastDriveCancel (iasa 4). Moves carrying try_drive_cancel: Slap, EyeBeam, SideKick, Blast, Propel, GroundPound, Lariat, DriveWheelie, DriveBoost, DriveForward."
+  }
+ ],
+ "quirks": "1) NO standard mobility: Robot.tscn blanks interrupt_from_string on DashForward/DashBackward/DoubleJump/AirDash - he cannot dash, double-jump or airdash. Instead: STEP (teleporting hit-dash with RETURN followup), PROPEL slide, Drive stance, and FLIGHT. 2) FLIGHT: extra options supply fly_dir + fly_enabled each turn; flying lasts up to 25 ticks per activation, applies force 1.65 toward fly_dir (up-speed capped -6, forward cap 9, backward cap 5), drains air option bar 20/tick (bar 0 or grounding ends flight); flying backward/up adds penalty every 2 ticks; cannot perfect-parry while flying; blocked melee attack or getting hurt ends flight. Air option bar refills to min 80 + 3/tick grounded, +300/combo-divided on hit, full on burst. The same bar fuels LAUNCH missiles. 3) ARMOR PIPS: 1 pip max, regained by landing any move (when not in a hurt state); armor_enabled extra spends the pip to raise autoblock armor after 3 startup ticks (5 from whiff-cancel); getting hit while armored loses all pips and the armor; armor on a grab disables feinting; armor and magnet-pull extras are mutually exclusive. has_armor() also requires super_armor_installed (granted by KILL PROCESS landing). 4) LOIC meter: 1000 cap, starts 500, +5/tick except while an orbital strike is active; full meter + 2 super bars unlocks LOIC; SHUTDOWN cancels the strike; the strike marker is re-aimable every turn via loic_dir extra; projectile deactivates if Robot gets launched or grabbed. 5) GROUND POUND charge: rising above 48px (y < -48) while not hurt arms can_ground_pound (HUD indicator); next landing with fall speed > 5.0 gets a landing hitbox (damage = 0.3 * 10 * speed, min 10-ish) plus two LandingShockwave projectiles; consumed on grounding/blocked hit. 6) KILL PROCESS consumes ALL super bars (min 3) and at 9 bars in neutral is a scripted instant kill (level set to 200 -> 15150 damage). 7) REMOTE BOMB + MAGNETIZE form a puppet subsystem: one grenade, detonate/bounce via extras, magnet drags bomb (and the opponent, if the bomb touched them) toward Robot for 100 ticks. 8) Cut content still wired in: 'Galvanize' (self-targeted LOIC, selectable=false), 'EarthquakeThrow' and 'OverflowGrabOld' (selectable=false), DisembowelGrab base state, and the magnet_installed/pull_enabled extra path (magnet_installed is never set true). GroundPound's Hitbox4 checks used_earthquake_grab, which is unreachable.",
+ "unverified": [
+  {
+   "move": "Roll/TechRoll/Getup",
+   "reason": "invulnerability windows live in RollDodge/Getup base class logic, not extracted as ticks"
+  },
+  {
+   "move": "ParryHigh/ParryAfterWhiff/ParrySuper",
+   "reason": "block/parry frame mechanics are in NewParry.gd runtime logic; only anim_length(20)/endless extracted"
+  },
+  {
+   "move": "CounterAttackHi/Low/Grab",
+   "reason": "counter trigger windows and counter damage live in CounterAttack.gd, not extracted"
+  },
+  {
+   "move": "AirKick / EyeBeam / Vacuum",
+   "reason": "multiple overlapping same-tick hitboxes with different damage (50/70, 55/80, 65/100); which body region maps to which value requires hitbox position data not extracted"
+  },
+  {
+   "move": "Chainsaw",
+   "reason": "hitbox start/active set in _ready from exported chainsaw_start_tick/end_tick (11..20 used here); .tscn raw values (0/5) are overridden at runtime; arc position fully dynamic"
+  },
+  {
+   "move": "Missile (LAUNCH)",
+   "reason": "total state duration is dynamic (current_tick loops back per missile); listed IASA is per-cycle anim_length-1"
+  },
+  {
+   "move": "ChargeDash (Super Dash)",
+   "reason": "charge-hold timing is endless; release data {x:100, charged:true} passed to ChargedStep; exact charge thresholds in Dash/ChargeDash base code"
+  },
+  {
+   "move": "Jump/SuperJump",
+   "reason": "ticks-to-airborne and jump force live in states/Jump.gd base code; anim_length 120 is nominal"
+  },
+  {
+   "move": "GroundPound",
+   "reason": "Hitbox4 (80) has active_ticks driven by code (0 if used_earthquake_grab else 3); Hitbox3 (75) has start_tick=-1 and the engine only schedules hitboxes with start_tick>0, so it never activates - excluded from Damage"
+  },
+  {
+   "move": "Landing (ground-pound shockwave)",
+   "reason": "damage computed at runtime from fall speed (0.3*round(speed/1.0*10)); LandingShockwave projectile damage also runtime-set"
+  },
+  {
+   "move": "Taunt (Hustle)",
+   "reason": "meter/'sadness' amounts are in base Taunt.gd, not extracted"
+  },
+  {
+   "move": "Step",
+   "reason": "Step node exports earliest_hitbox=11 while parsed hitbox start_tick=9; in-engine hitbox activation uses start_tick 9, the earliest_hitbox hint disagrees"
+  }
+ ]
+}

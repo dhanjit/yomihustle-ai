@@ -1,13 +1,12 @@
 """Prompt-assembly + CLI coverage for DESIGN.md SS13.5 / SS14.1: PromptStore
-caching and byte-stability (Anthropic prompt-cache hygiene), per-character
+caching and byte-stability (provider prompt-cache hygiene), per-character
 block fallback, the recorded-fixture corpus, --fixture mode, and the friendly
 exit when the real client cannot be constructed.
 
-Stdlib only -- no `anthropic`, no network, no sockets.
+Stdlib only -- no network, no sockets.
 """
 
 import glob
-import importlib.util
 import json
 import os
 
@@ -142,12 +141,11 @@ def test_fixture_cli_mode_prints_envelope_and_returns_0(tmp_path, capsys):
     assert env["response"]["tick"] == 1473
 
 
-@pytest.mark.skipif(importlib.util.find_spec("anthropic") is not None,
-                    reason="anthropic installed; the real client might construct "
-                           "via ambient credentials and reach the network")
 def test_real_client_unavailable_exits_2(tmp_path, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    # No provider SDK to guard against: the real client is stdlib urllib and
+    # constructs only when OPENROUTER_API_KEY is set. Without it, build_client
+    # must exit 2 (and never reach the network).
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     fixture = os.path.join(FIXTURES_DIR, "v1_cowboy_vs_ninja_neutral.json")
     with pytest.raises(SystemExit) as exc:
         B.main(["--fixture", fixture, "--data-dir", str(tmp_path), "--no-snapshots"])

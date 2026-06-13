@@ -8,6 +8,21 @@ internals is grounded in the upstream source files; identifiers come from
 the real scripts (`game.gd`, `_AIOpponents/AIController.gd`,
 `modloader/ModLoader.gd`, `ReplayManager.gd`).
 
+> **ERRATUM (provider-agnostic, 2026-06-13).** This document was drafted
+> around the Anthropic SDK as the bridge's LLM client. That violated a
+> standing infra rule (CLAUDE.md: *LLM access goes through OpenRouter; never
+> hard-wire one provider's SDK; model choice is always an env var*). The
+> bridge now reaches the model through **OpenRouter's OpenAI-compatible
+> Chat Completions endpoint over plain stdlib `urllib`** — no provider SDK.
+> Model is the `YOMI_MODEL` env var (any OpenRouter slug); key is
+> `OPENROUTER_API_KEY` (Infisical-injected); endpoint override is
+> `OPENROUTER_BASE_URL`. Structured output is unchanged in spirit — a forced
+> `tool_choice` on the same tool JSON schemas, rendered into OpenAI `tools`
+> shape. Wherever this doc still says "Anthropic API", "Claude call", or
+> shows a `claude-opus-4-8` `model_version`, read it as "the configured
+> OpenRouter model". The `claude_timeout` / `claude_ms` identifiers are kept
+> as stable wire/telemetry names, not a provider claim.
+
 ---
 
 ## 1. Goal & scope
@@ -1639,8 +1654,8 @@ Telemetry splits into TWO orthogonal dimensions:
 | TCP connect (`connect_to_host` + status poll) | 2000ms | Treat as `transport_no_connect`, Tier 2 fallback |
 | Frame write (`put_data` of length + body) | 100ms | Treat as `transport_write_failed`, Tier 2 |
 | Frame read (length + body) | 8000ms | Treat as `transport_read_timeout`, Tier 2 |
-| Python Claude call (Anthropic API, internal) | 6000ms | Python returns `error_code=claude_timeout` |
-| Anthropic SDK retries | DISABLED (`max_retries=0`) | All retry logic is mod-side |
+| Python LLM call (OpenRouter, internal) | 6000ms | Python returns `error_code=claude_timeout` |
+| Client-side retries | DISABLED (none) | All retry logic is mod-side |
 | Tier 2 heuristic | 200ms target, log if exceeded | If `OS.get_ticks_msec()` overrun, still complete (no preempt) but log `HEURISTIC_SLOW` |
 | Tier 3 SAFE_CONTINUE | <1ms | n/a |
 | v2 ghost-eval K-loop | 50ms aggregate, 16ms/candidate | Skip remaining candidates, submit partial round 2 |

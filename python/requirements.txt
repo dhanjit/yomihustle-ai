@@ -1,12 +1,12 @@
-# Runtime dependency of the REAL client only. The bridge itself, --stub mode,
-# and the whole test suite run on the Python standard library alone.
+# The bridge runs on the Python standard library alone — including the real
+# OpenRouter client (plain urllib POST to the OpenAI-compatible Chat
+# Completions endpoint). There is NO runtime third-party dependency: --stub
+# mode, the test suite, and live play all run with nothing installed.
 #
-# Floor rationale: the bridge relies on `strict: true` tool definitions,
-# forced tool_choice, cache_control system blocks, usage.cache_*_input_tokens,
-# and the claude-opus-4-8 / claude-sonnet-4-6 model generation -- all of which
-# the >=0.92 SDK line is documented against. 0.40-era SDKs predate strict
-# tool use and are untested with this bridge.
-anthropic>=0.92
+# Provider-agnostic by design (CLAUDE.md): the model is the YOMI_MODEL env var
+# (any OpenRouter slug), the key is OPENROUTER_API_KEY (Infisical-injected),
+# and the endpoint is OPENROUTER_BASE_URL — so swapping models/providers never
+# touches code or this file.
 
-# Dev/test dependencies (install manually if needed):
+# Dev/test dependency only (install manually if you want to run the suite):
 # pytest>=8

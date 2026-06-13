@@ -9,19 +9,20 @@ End-to-end runbook for getting Claude to play *Your Only Move Is HUSTLE*
   editor against a source clone of the game. ~30–60 minutes the first time.
 
 Both paths also run the **Python bridge**, the localhost process that talks
-to the Anthropic API on the mod's behalf.
+to the model (via OpenRouter) on the mod's behalf.
 
 ```
 +-------------------+        TCP 127.0.0.1:8765        +------------------+       HTTPS
-|  YOMIH (Godot)    | <------------------------------> |  python\bridge.py | <----------> Anthropic API
-|  + claude_yomih   |    length-prefixed JSON frames    |  (this repo)      |
+|  YOMIH (Godot)    | <------------------------------> |  python\bridge.py | <----------> OpenRouter
+|  + claude_yomih   |    length-prefixed JSON frames    |  (this repo)      |   (any model slug)
 |    mod (zip)      |                                   +------------------+
 +-------------------+
 ```
 
 Everything stays on your machine except the bridge's HTTPS calls to
-Anthropic. The TCP port is loopback-only by design and authenticated with a
-per-run token file.
+OpenRouter. The model is provider-agnostic (set `YOMI_MODEL` to any OpenRouter
+slug); the real client is plain stdlib — no provider SDK to install. The TCP
+port is loopback-only by design and authenticated with a per-run token file.
 
 ---
 
@@ -33,7 +34,7 @@ per-run token file.
 | Steam + *Your Only Move Is HUSTLE* | the game | AppID 2212330. |
 | Python 3.10+ on PATH | the bridge | 3.13 is what the test suite runs on. `python --version` to check. |
 | Git | cloning this repo (and `uzkbwza/hustle` for dev) | |
-| Anthropic API key | real Claude play | Skip if you only want `--stub` mode. Get one at console.anthropic.com. |
+| OpenRouter API key | real model play | Skip if you only want `--stub` mode. Get one at openrouter.ai/keys; inject via Infisical or `$env:OPENROUTER_API_KEY`. |
 | Windows PowerShell 5.1 | the build/install scripts | In-box on every Windows 10/11. PowerShell 7 also works. |
 | GodotSteam **3.5.1** editor | **dev path only** | Stock Godot will not open the project (Steam classes are compiled into the engine). |
 
@@ -45,12 +46,12 @@ policy change needed.
 
 ## 2. Player setup (Steam build)
 
-### 2.1 Clone and install Python deps
+### 2.1 Clone
 
 ```powershell
 git clone https://github.com/dhanjit/yomihustle-ai.git
 cd yomihustle-ai
-pip install -r python\requirements.txt    # just `anthropic`; skip if stub-only
+# No pip install needed — the bridge (real client included) is stdlib-only.
 ```
 
 ### 2.2 Build and install the mod ZIP
@@ -115,10 +116,11 @@ ModLoader reads `%APPDATA%\YourOnlyMoveIsHUSTLE\modded.json`:
 
 ### 2.4 Start the bridge
 
-Real Claude:
+Real model (via OpenRouter):
 
 ```powershell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."       # or setx for persistence (new shells only)
+$env:OPENROUTER_API_KEY = "sk-or-..."        # or: infisical run -- python python\bridge.py
+$env:YOMI_MODEL = "anthropic/claude-opus-4"  # optional; any OpenRouter slug
 python python\bridge.py
 ```
 
@@ -129,8 +131,9 @@ python python\bridge.py --stub
 ```
 
 You should see `bridge 0.1.0 listening on 127.0.0.1:8765`. Useful flags:
-`--model` / `--model-v0` (defaults `claude-opus-4-8` / `claude-sonnet-4-6`),
-`--verbose`, `--data-dir`. The bridge:
+`--model` / `--model-v0` (env `YOMI_MODEL` / `YOMI_MODEL_V0`; defaults
+`anthropic/claude-opus-4` / `anthropic/claude-sonnet-4` — confirm the exact
+slug at openrouter.ai/models), `--verbose`, `--data-dir`. The bridge:
 
 - binds **127.0.0.1 only**, port 8765 (scans up to 8770 if taken) and writes
   the chosen port plus an auth token to `%LOCALAPPDATA%\claude_yomih\`
@@ -319,11 +322,12 @@ disconnect default to 1, then behave normally). Run **either** the stub
 | Mod missing from the in-game mod list | ZIP in the wrong place, or wrong internal layout | The ZIP must be `<folder with the game .exe>\mods\yomihustle-ai.zip`, with everything under a `claude_yomih/` subfolder. Always rebuild with `tools\build.ps1` (it verifies layout and fixes the PS 5.1 backslash-entry quirk); never hand-zip. |
 | Toggled mods in-game, nothing changed | `modded.json` is read **once at startup** | Toggle, then **restart the game**. The bridge is a separate process: it does not restart or stop with the game — stop it yourself with Ctrl+C when you're done. |
 | HUD says “Claude bridge offline — using heuristic” | Bridge not running, or a stale `port` file from a hard-killed bridge | Start `python python\bridge.py` (or `--stub`). The mod re-probes every 30 s. If it persists, delete `%LOCALAPPDATA%\claude_yomih\port` and restart the bridge (it rewrites the file; a clean exit removes it). |
-| Antivirus / firewall flags the game or `python.exe` making network connections | The mod↔bridge link is plain TCP on `127.0.0.1:8765–8770`, which some AVs surface | Expected and harmless: the bridge binds loopback **only** — this traffic never leaves your machine. Allow loopback for `python.exe`. Only the bridge's outbound HTTPS to `api.anthropic.com` touches the network (absent in `--stub`). |
+| Antivirus / firewall flags the game or `python.exe` making network connections | The mod↔bridge link is plain TCP on `127.0.0.1:8765–8770`, which some AVs surface | Expected and harmless: the bridge binds loopback **only** — this traffic never leaves your machine. Allow loopback for `python.exe`. Only the bridge's outbound HTTPS to `openrouter.ai` touches the network (absent in `--stub`). |
 | `_AIOpponents` (reference AI mod) is also installed — conflict? | Both mods extend `game.gd` | Supported by design: `claude_yomih` loads last (priority 100000) and **frees the reference AIController at match start**, so Claude drives. Keep both installed if you like; no uninstall needed. Check the game log for “chain inversion” warnings if a third mod fights for the same hook. |
 | No “Claude Plays HUSTLE” pane in Mod Options | SoupModOptions mod not installed | Expected — the pane is optional. Play on defaults (mode v1, Claude = P2, port from the bridge file), drop a `config.json` in the bridge runtime dir (see §“Configuring without SoupModOptions”), or install SoupModOptions into the same `mods\` folder. The mod loads and runs either way. |
 | Game log: `Parse Error: Couldn't load the base class: res://SoupModOptions/ModOptions.gd` | Old build (≤ first live test) hard-`extends` SoupModOptions | Rebuild with `tools\build.ps1` — the current mod gates the options pane on SoupModOptions being present, so this no longer fires. |
-| `bridge: could not initialise the Anthropic client` | No `ANTHROPIC_API_KEY`, or `anthropic` package missing | `$env:ANTHROPIC_API_KEY="sk-ant-..."` and `pip install -r python\requirements.txt` — or run `--stub`. |
+| `bridge: could not initialise the OpenRouter client` | `OPENROUTER_API_KEY` not set | `$env:OPENROUTER_API_KEY="sk-or-..."` (or `infisical run -- python python\bridge.py`) — or run `--stub`. No package install needed; the real client is stdlib-only. |
+| Bridge returns `error_code=api_error` on every turn | Invalid `YOMI_MODEL` slug, no OpenRouter credit, or the model lacks tool-calling | Check the slug at openrouter.ai/models (it must support tool/function calling), confirm account credit, and watch the bridge console for the HTTP status. The mod falls back to the heuristic meanwhile (HUD shows nothing — it's a per-turn degrade, logged in `decisions.jsonl`). |
 | Bridge console: `AUTH_FAIL` | Mod and bridge disagree on the token file (bridge restarted mid-session, or different `--data-dir`) | Restart the bridge, then leave and re-enter the match (the mod re-reads the token file when it reconnects). Use the same `--data-dir` on both stub and bridge runs. |
 | Bridge says it wrote `%LOCALAPPDATA%\claude_yomih\` but that folder is empty | **Microsoft Store Python** virtualizes AppData writes into its package sandbox (`...\Packages\PythonSoftwareFoundation...\LocalCache\Local\`) | Nothing to do — the bridge detects Store Python and writes to `%USERPROFILE%\.claude_yomih\` instead (it logs which dir it chose); the mod probes both locations. Prefer python.org Python for the standard location. |
 | Logs show `error_code=schema_mismatch` | Mod ZIP and bridge come from different repo versions (or you're running the `schema_mismatch` stub scenario) | Rebuild the ZIP and pull the repo so both sides speak `schema_version: 1`. |

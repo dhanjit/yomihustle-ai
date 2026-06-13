@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Claude <-> YOMI Hustle TCP bridge.
+"""LLM <-> YOMI Hustle TCP bridge.
 
-Single-file localhost bridge between the Godot mod (GDScript, see src/) and
-the Anthropic API, per DESIGN.md:
+Single-file localhost bridge between the Godot mod (GDScript, see src/) and an
+LLM reached through OpenRouter (CLAUDE.md infra default: model-agnostic, route
+through OpenRouter, model is an env var). Per DESIGN.md:
 
   - SS3   wire protocol: 4-byte UNSIGNED BIG-ENDIAN length prefix + UTF-8 JSON
           body, 1 MB frame cap, hello/hello_ack/hello_auth/0x01 handshake,
           canonical outcome envelope.
-  - SS9   failure modes: 6s Claude budget (claude_timeout), SDK retries
-          disabled (max_retries=0), degradation-reason taxonomy.
+  - SS9   failure modes: 6s decision budget (claude_timeout), no client-side
+          retries (all retry/fallback is mod-side), degradation-reason taxonomy.
   - SS10  v0 category-picker mode.
   - SS12.5 port discovery 8765..8770, port file in the data dir.
   - SS14.1 --fixture mode for socket-free request/response exercise.
@@ -17,8 +18,9 @@ the Anthropic API, per DESIGN.md:
           are written MOD-side (user://claude_yomih/turns/...).
   - SS16  token auth, PID file, frame-size cap, 5 req/s rate limit.
 
-Runs on stdlib only. The `anthropic` package is imported lazily and ONLY when
-the real client is selected (i.e. never under --stub, never in tests).
+Runs on the Python standard library only — including the real OpenRouter client
+(plain urllib, no provider SDK). No third-party package is needed for --stub,
+the tests, or live play.
 """
 
 import argparse
@@ -33,6 +35,8 @@ import struct
 import subprocess
 import sys
 import threading
+import urllib.error
+import urllib.request
 import time
 from collections import deque
 
@@ -70,8 +74,14 @@ CATEGORY_ENUM = ["Movement", "Attack", "Special", "Super", "Defense"]
 
 RANKED_MODES = ("v1", "v2_round1", "v2_round2")
 
-DEFAULT_MODEL = "claude-opus-4-8"      # v1 / v2 rounds
-DEFAULT_MODEL_V0 = "claude-sonnet-4-6"  # SS10: v0 is the cheapest Claude path
+# Model is an OpenRouter slug, picked from an env var so swapping providers is
+# a config change, not a code change (CLAUDE.md: model-agnostic, route through
+# OpenRouter). Point YOMI_MODEL at any OpenRouter model — anthropic/claude-*,
+# qwen/*, deepseek/*, etc. Defaults are Claude-family so out-of-the-box
+# behaviour matches the original design; verify the exact slug against
+# openrouter.ai/models (slugs change across model generations).
+DEFAULT_MODEL = os.environ.get("YOMI_MODEL", "anthropic/claude-opus-4")        # v1 / v2 rounds
+DEFAULT_MODEL_V0 = os.environ.get("YOMI_MODEL_V0", "anthropic/claude-sonnet-4")  # SS10: cheapest path
 
 log = logging.getLogger("claude_yomih.bridge")
 
@@ -372,7 +382,7 @@ class DecisionResult(object):
         self.usage = usage or {}
 
 
-# Static tool schemas: byte-stable across requests so the Anthropic prompt
+# Static tool schemas: byte-stable across requests so any provider-side prompt
 # cache (tools render at position 0) is never invalidated. Dynamic legality
 # (action names, visible categories) is enforced bridge-side in validate_*.
 RANKED_TOOL = {
@@ -461,7 +471,7 @@ class PromptStore(object):
     """Loads system prompts + optional per-character frame-data JSON.
 
     Character blocks are cached as raw file text so the rendered system
-    blocks are byte-stable -> Anthropic prompt cache hits (per-character
+    blocks are byte-stable -> provider-side prompt cache hits (per-character
     caching, DESIGN SS13.5). Missing character file -> generic prompt + one
     warning (frame data is produced by another workstream; never fail).
     """
@@ -614,25 +624,61 @@ class StubClient(object):
         )
 
 
-class AnthropicClient(object):
-    """Real client. Imports `anthropic` lazily, only when constructed.
+def _to_openai_tool(tool):
+    """Render an internal tool def ({name, description, input_schema}) into the
+    OpenAI / OpenRouter function-tool shape. The JSON Schema carries straight
+    over as `parameters`; forced tool_choice (not `strict`) guarantees the call.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": tool["name"],
+            "description": tool.get("description", ""),
+            "parameters": tool["input_schema"],
+        },
+    }
 
-    - max_retries=0: SDK retries DISABLED per SS9.1 (all retry logic mod-side)
-    - timeout=6.0s: SS9.1 Claude-call budget; overrun -> claude_timeout
-    - forced tool_choice for structured output; tool schemas are static
-    - prompt caching: cache_control on system blocks (prompt + char data)
-    - no `thinking`, no sampling params (removed on current Opus models; the
-      latency budget wants direct answers anyway)
+
+def _render_system(blocks):
+    """Flatten system_blocks (the internal Anthropic-style content blocks) into
+    one plain string for the OpenAI/OpenRouter `system` message. We deliberately
+    drop the per-block `cache_control` on the wire: a plain string is valid for
+    every OpenRouter model, where cache_control content-parts are not. Prompt
+    caching still happens automatically on providers that support it (the system
+    prefix is byte-stable). For Claude-family models, explicit cache breakpoints
+    can be re-added later as a cost optimisation (DESIGN SS13.5) — it is not a
+    correctness concern."""
+    return "\n\n".join(b["text"] for b in blocks if b.get("text"))
+
+
+class OpenRouterClient(object):
+    """Real client. Talks to OpenRouter's OpenAI-compatible Chat Completions
+    endpoint over the Python standard library (urllib) — NO provider SDK, per
+    CLAUDE.md: "never hard-wire one provider's SDK; LLM access goes through
+    OpenRouter; model choice is always an env var." Swapping Claude for Qwen,
+    DeepSeek, etc. is a `YOMI_MODEL` change, nothing else.
+
+    - no client-side retries: SS9.1 — all retry/fallback logic is mod-side, so a
+      slow or failed call degrades to the heuristic instead of stalling the game
+    - timeout=CLAUDE_TIMEOUT_S; overrun -> claude_timeout
+    - structured output via forced tool_choice on the same tool JSON schemas the
+      rest of the bridge uses, rendered into OpenAI `tools` shape
+    - key from OPENROUTER_API_KEY (Infisical-injected at runtime); endpoint
+      override via OPENROUTER_BASE_URL (LiteLLM, a local gateway, ...)
     """
 
     def __init__(self, prompts, model=DEFAULT_MODEL, model_v0=DEFAULT_MODEL_V0,
                  timeout_s=CLAUDE_TIMEOUT_S):
-        import anthropic  # lazy: only the real client pays this import
-        self._anthropic = anthropic
-        self._client = anthropic.Anthropic(timeout=timeout_s, max_retries=0)
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not set")
+        self._api_key = api_key
+        self._base_url = os.environ.get(
+            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
         self._prompts = prompts
         self._model = model
         self._model_v0 = model_v0
+        self._timeout = timeout_s
 
     def reset_match_state(self):
         self._prompts.clear_caches()
@@ -648,35 +694,64 @@ class AnthropicClient(object):
             "moves/categories, then call the tool.\n"
             + json.dumps(request, sort_keys=True)
         )
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": _render_system(
+                    self._prompts.system_blocks(mode, request))},
+                {"role": "user", "content": user_text},
+            ],
+            "tools": [_to_openai_tool(tool)],
+            "tool_choice": {"type": "function", "function": {"name": tool["name"]}},
+        }
+        data = self._post(payload)
+        choices = data.get("choices") or []
+        if not choices:
+            raise ClaudeError("parse_failure", "no choices in response")
+        message = choices[0].get("message") or {}
+        tool_calls = message.get("tool_calls") or []
+        if not tool_calls:
+            raise ClaudeError("parse_failure", "no tool_call in response")
+        args = (tool_calls[0].get("function") or {}).get("arguments")
         try:
-            resp = self._client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=self._prompts.system_blocks(mode, request),
-                tools=[tool],
-                tool_choice={"type": "tool", "name": tool["name"]},
-                messages=[{"role": "user", "content": user_text}],
-            )
-        except self._anthropic.APITimeoutError as exc:
+            parsed = json.loads(args) if isinstance(args, str) else args
+        except (TypeError, ValueError) as exc:
+            raise ClaudeError("parse_failure", "tool arguments not JSON: %s" % exc)
+        if not isinstance(parsed, dict):
+            raise ClaudeError("parse_failure", "tool arguments not an object")
+        usage_raw = data.get("usage") or {}
+        usage = {
+            "input_tokens": usage_raw.get("prompt_tokens"),
+            "output_tokens": usage_raw.get("completion_tokens"),
+        }
+        return DecisionResult(parsed, data.get("model", model), usage)
+
+    def _post(self, payload):
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self._base_url + "/chat/completions", data=body, method="POST",
+            headers={
+                "Authorization": "Bearer " + self._api_key,
+                "Content-Type": "application/json",
+                # OpenRouter attribution headers (optional, harmless elsewhere).
+                "HTTP-Referer": "https://github.com/dhanjit/yomihustle-ai",
+                "X-Title": "yomihustle-ai",
+            })
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except socket.timeout as exc:
             raise ClaudeError("claude_timeout", str(exc))
-        except self._anthropic.APIStatusError as exc:
-            raise ClaudeError("api_error", "status %s" % getattr(exc, "status_code", "?"))
-        except self._anthropic.APIConnectionError as exc:
+        except urllib.error.HTTPError as exc:
+            raise ClaudeError("api_error", "status %s" % exc.code)
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, socket.timeout):
+                raise ClaudeError("claude_timeout", str(reason))
+            raise ClaudeError("api_error", str(reason))
+        except (ValueError, OSError) as exc:
             raise ClaudeError("api_error", str(exc))
-        block = next((b for b in resp.content if b.type == "tool_use"), None)
-        if block is None or not isinstance(block.input, dict):
-            raise ClaudeError("parse_failure", "no tool_use block in response")
-        usage = {}
-        try:
-            usage = {
-                "input_tokens": resp.usage.input_tokens,
-                "output_tokens": resp.usage.output_tokens,
-                "cache_read_input_tokens": resp.usage.cache_read_input_tokens,
-                "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens,
-            }
-        except Exception:
-            pass
-        return DecisionResult(block.input, resp.model, usage)
 
 
 # ---------------------------------------------------------------------------
@@ -1209,12 +1284,12 @@ def build_client(args):
     if args.stub:
         return StubClient()
     try:
-        return AnthropicClient(prompts, model=args.model, model_v0=args.model_v0,
-                               timeout_s=args.claude_timeout)
-    except Exception as exc:  # ImportError or missing-credentials at construction
-        print("bridge: could not initialise the Anthropic client: %s" % exc,
+        return OpenRouterClient(prompts, model=args.model, model_v0=args.model_v0,
+                                timeout_s=args.claude_timeout)
+    except Exception as exc:  # missing credentials at construction
+        print("bridge: could not initialise the OpenRouter client: %s" % exc,
               file=sys.stderr)
-        print("bridge: set ANTHROPIC_API_KEY (and `pip install -r requirements.txt`), "
+        print("bridge: set OPENROUTER_API_KEY (e.g. `infisical run -- python bridge.py`), "
               "or run with --stub for the offline client.", file=sys.stderr)
         raise SystemExit(2)
 
@@ -1226,11 +1301,11 @@ def main(argv=None):
                         help="listen port (default %d; scans up to %d if taken)"
                              % (DEFAULT_PORT, PORT_SCAN_MAX))
     parser.add_argument("--stub", action="store_true",
-                        help="use the deterministic offline StubClient (no anthropic, no network)")
+                        help="use the deterministic offline StubClient (no network, no API key)")
     parser.add_argument("--model", default=DEFAULT_MODEL,
-                        help="Anthropic model for v1/v2 (default %s)" % DEFAULT_MODEL)
+                        help="OpenRouter model slug for v1/v2 (env YOMI_MODEL; default %s)" % DEFAULT_MODEL)
     parser.add_argument("--model-v0", default=DEFAULT_MODEL_V0,
-                        help="Anthropic model for v0 category mode (default %s)" % DEFAULT_MODEL_V0)
+                        help="OpenRouter model slug for v0 category mode (env YOMI_MODEL_V0; default %s)" % DEFAULT_MODEL_V0)
     parser.add_argument("--prompts-dir", default=None,
                         help="prompt directory (default: ./prompts next to bridge.py)")
     parser.add_argument("--data-dir", default=None,

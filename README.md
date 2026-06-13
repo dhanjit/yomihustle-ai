@@ -28,7 +28,7 @@ tools\build.ps1
 # 3. Launch YOMIH, enable "Claude AI Controller" in the mod menu, restart, start a singleplayer match
 ```
 
-Real Claude: set `ANTHROPIC_API_KEY` and drop `--stub`. Full walkthrough in [SETUP.md](SETUP.md).
+Real model: set `OPENROUTER_API_KEY` (model-agnostic via OpenRouter — `YOMI_MODEL` is any slug) and drop `--stub`. Full walkthrough in [SETUP.md](SETUP.md).
 
 ## Status
 

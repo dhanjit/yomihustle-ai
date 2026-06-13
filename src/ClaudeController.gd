@@ -69,6 +69,8 @@ var ghost_verify_forced_off = false
 # DI hitstun gate cannot silently regress to Defense(4) if that line is lost.
 var action_type_hurt = 5
 var _modoptions_warned = false
+# Standalone config.json cache (used when SoupModOptions isn't installed).
+var _config_cache = null
 # §9.3 persistent HUD indicator, visible while the bridge is unreachable.
 var offline_label = null
 
@@ -185,19 +187,40 @@ func _derive_controlled_id():
 # Options / environment
 # ---------------------------------------------------------------------------
 
+# Option lookup, layered: SoupModOptions in-game pane (if installed) →
+# standalone config.json next to the bridge runtime files → built-in default.
+# Keys and value encodings match the SoupModOptions widgets so the path is
+# uniform: mode 0=v1/1=v0/2=v_none, target_player 0=Auto(→P2)/1/2, the rest
+# bool/int. config.json schema is documented in SETUP.md.
 func _opt(key, default_value):
-	if main == null:
-		return default_value
-	var mo = main.get_node_or_null("ModOptions")
-	if mo == null or not mo.has_method("get_setting"):
-		if not _modoptions_warned:
-			_modoptions_warned = true
-			push_warning("claude_yomih: SoupModOptions absent — defaulting mode=v1, port=%d." % DEFAULT_PORT)
-		return default_value
-	var v = mo.get_setting("claude_yomih", key)
-	if v == null:
-		return default_value
-	return v
+	if main != null:
+		var mo = main.get_node_or_null("ModOptions")
+		if mo != null and mo.has_method("get_setting"):
+			var v = mo.get_setting("claude_yomih", key)
+			if v != null:
+				return v
+	var cfg = _load_config()
+	if cfg.has(key):
+		return cfg[key]
+	if not _modoptions_warned:
+		_modoptions_warned = true
+		push_warning("claude_yomih: no in-game options pane and no config.json — using defaults (mode=v1, Claude=P2, port=%d)." % DEFAULT_PORT)
+	return default_value
+
+# Lazily load <runtime-dir>/config.json once. Edits take effect on next match
+# (we don't hot-reload mid-session). Same probe order as the token/port files.
+func _load_config():
+	if _config_cache != null:
+		return _config_cache
+	_config_cache = {}
+	var txt = _read_runtime_file("config.json")
+	if txt != "":
+		var parsed = JSON.parse(txt)
+		if parsed.error == OK and typeof(parsed.result) == TYPE_DICTIONARY:
+			_config_cache = parsed.result
+		else:
+			push_warning("claude_yomih: config.json present but not valid JSON object — ignoring.")
+	return _config_cache
 
 func _opt_num(key, default_value):
 	var v = _opt(key, default_value)

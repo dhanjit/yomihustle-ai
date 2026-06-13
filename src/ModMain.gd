@@ -9,7 +9,19 @@ extends Node
 
 func _init(modLoader = ModLoader):
 	modLoader.installScriptExtension("res://claude_yomih/ClaudeLoader.gd")
-	modLoader.installScriptExtension("res://claude_yomih/ModOptions.gd")
+	# ModOptions.gd `extends "res://SoupModOptions/ModOptions.gd"`, which GDScript
+	# resolves at PARSE time — so if SoupModOptions isn't installed, merely
+	# loading ModOptions.gd is a hard parse error (observed live: "Couldn't load
+	# the base class"). SoupModOptions is an OPTIONAL in-game settings pane, not a
+	# requirement: gate the extension on the base actually existing. Without it,
+	# ClaudeController reads a standalone config.json (or built-in defaults:
+	# mode=v1, Claude=P2, port from the bridge's runtime file). All mounted mod
+	# zips are resource-packed before any ModMain._init runs, so this check sees
+	# SoupModOptions if the user has it.
+	if ResourceLoader.exists("res://SoupModOptions/ModOptions.gd"):
+		modLoader.installScriptExtension("res://claude_yomih/ModOptions.gd")
+	else:
+		print("claude_yomih: SoupModOptions not installed — in-game options pane disabled; using config.json/defaults.")
 
 func _ready():
 	pass

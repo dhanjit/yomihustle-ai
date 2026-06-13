@@ -667,8 +667,24 @@ extends Node
 
 func _init(modLoader = ModLoader):
     modLoader.installScriptExtension("res://claude_yomih/ClaudeLoader.gd")
-    modLoader.installScriptExtension("res://claude_yomih/ModOptions.gd")
+    # ModOptions extends SoupModOptions, resolved at parse time — gate it.
+    if ResourceLoader.exists("res://SoupModOptions/ModOptions.gd"):
+        modLoader.installScriptExtension("res://claude_yomih/ModOptions.gd")
 ```
+
+ERRATUM (live boot test, 2026-06-13): `ModOptions.gd` does
+`extends "res://SoupModOptions/ModOptions.gd"` (mirroring
+`_AIOpponents/ModOptions.gd`). GDScript resolves a base class at **parse
+time**, so on a machine without SoupModOptions the bare
+`installScriptExtension(".../ModOptions.gd")` is a hard parse error
+(`Couldn't load the base class`) — caught only by launching the shipped
+game, never by the offline suite. SoupModOptions is an *optional* in-game
+settings pane, so `_init` now gates that second extension on
+`ResourceLoader.exists`. When it's absent, `ClaudeController._opt` reads a
+standalone `config.json` from the bridge runtime dir, then built-in
+defaults (mode v1, Claude = P2, port from the bridge port file). All mod
+zips are resource-packed before any `ModMain._init` runs, so the
+existence check sees SoupModOptions when the user has it.
 
 Single-line `_init` matching the `_AIOpponents/ModMain.gd` shape. **No
 side effects in `_init`** beyond the two `installScriptExtension` calls.

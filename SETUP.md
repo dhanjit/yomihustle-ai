@@ -161,8 +161,24 @@ HUSTLE”**. Now play your first match — see section 3.
    - **Fallback only / Disable ghost-eval verification / fix frame-adv
      divisor**: leave at defaults.
    - The pane only exists if the **SoupModOptions** mod is installed
-     (drop its ZIP in the same `mods\` folder). Without it the mod
-     silently uses the defaults above.
+     (drop its ZIP in the same `mods\` folder). Without it the mod uses
+     the defaults above — or a standalone `config.json` (next item).
+   - **Configuring without SoupModOptions:** create a `config.json` in the
+     bridge runtime dir (`%LOCALAPPDATA%\claude_yomih\`, or
+     `%USERPROFILE%\.claude_yomih\` under Microsoft Store Python — the
+     bridge logs which it uses). Same encodings as the pane:
+     ```json
+     {
+       "mode": 0,            "_mode": "0=v1, 1=v0, 2=v_none",
+       "target_player": 0,   "_target_player": "0=Auto(P2), 1=P1, 2=P2",
+       "fallback_only": false,
+       "disable_ghost_verify": false,
+       "fix_frame_adv": false,
+       "port": 8765
+     }
+     ```
+     (Keys starting `_` are ignored — they're just inline docs.) Read once
+     at match start; edit then restart the match to apply.
 3. Start a **local, offline** match (online play and 3+ player MultiHustle
    are explicitly unsupported — the mod refuses to drive those). Pick both
    characters; Claude drives its side from the first turn.
@@ -305,7 +321,8 @@ disconnect default to 1, then behave normally). Run **either** the stub
 | HUD says “Claude bridge offline — using heuristic” | Bridge not running, or a stale `port` file from a hard-killed bridge | Start `python python\bridge.py` (or `--stub`). The mod re-probes every 30 s. If it persists, delete `%LOCALAPPDATA%\claude_yomih\port` and restart the bridge (it rewrites the file; a clean exit removes it). |
 | Antivirus / firewall flags the game or `python.exe` making network connections | The mod↔bridge link is plain TCP on `127.0.0.1:8765–8770`, which some AVs surface | Expected and harmless: the bridge binds loopback **only** — this traffic never leaves your machine. Allow loopback for `python.exe`. Only the bridge's outbound HTTPS to `api.anthropic.com` touches the network (absent in `--stub`). |
 | `_AIOpponents` (reference AI mod) is also installed — conflict? | Both mods extend `game.gd` | Supported by design: `claude_yomih` loads last (priority 100000) and **frees the reference AIController at match start**, so Claude drives. Keep both installed if you like; no uninstall needed. Check the game log for “chain inversion” warnings if a third mod fights for the same hook. |
-| No “Claude Plays HUSTLE” pane in Mod Options | SoupModOptions mod not installed | Install SoupModOptions into the same `mods\` folder, or just play on defaults (mode v1, player Auto, port 8765). |
+| No “Claude Plays HUSTLE” pane in Mod Options | SoupModOptions mod not installed | Expected — the pane is optional. Play on defaults (mode v1, Claude = P2, port from the bridge file), drop a `config.json` in the bridge runtime dir (see §“Configuring without SoupModOptions”), or install SoupModOptions into the same `mods\` folder. The mod loads and runs either way. |
+| Game log: `Parse Error: Couldn't load the base class: res://SoupModOptions/ModOptions.gd` | Old build (≤ first live test) hard-`extends` SoupModOptions | Rebuild with `tools\build.ps1` — the current mod gates the options pane on SoupModOptions being present, so this no longer fires. |
 | `bridge: could not initialise the Anthropic client` | No `ANTHROPIC_API_KEY`, or `anthropic` package missing | `$env:ANTHROPIC_API_KEY="sk-ant-..."` and `pip install -r python\requirements.txt` — or run `--stub`. |
 | Bridge console: `AUTH_FAIL` | Mod and bridge disagree on the token file (bridge restarted mid-session, or different `--data-dir`) | Restart the bridge, then leave and re-enter the match (the mod re-reads the token file when it reconnects). Use the same `--data-dir` on both stub and bridge runs. |
 | Bridge says it wrote `%LOCALAPPDATA%\claude_yomih\` but that folder is empty | **Microsoft Store Python** virtualizes AppData writes into its package sandbox (`...\Packages\PythonSoftwareFoundation...\LocalCache\Local\`) | Nothing to do — the bridge detects Store Python and writes to `%USERPROFILE%\.claude_yomih\` instead (it logs which dir it chose); the mod probes both locations. Prefer python.org Python for the standard location. |
